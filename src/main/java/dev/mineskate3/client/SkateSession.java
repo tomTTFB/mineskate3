@@ -42,7 +42,7 @@ public final class SkateSession {
     private double originZ;
     private BlockPos collisionCentre;
     private long collisionTime;
-    private final float[] pose = new float[160];
+    private final float[] pose = new float[NativeSkate.POSE_LENGTH];
     private long poseGeneration = -1;
     private boolean posePublished;
     private volatile CameraPose camera;
@@ -190,6 +190,7 @@ public final class SkateSession {
         entering = false;
         camera = null;
         posePublished = false;
+        SkateAudio.stopLocal();
         level = null;
         if (was) {
             send(new SkateNetwork.State(false));
@@ -264,7 +265,7 @@ public final class SkateSession {
             sendCollision(here);
         }
         if (posePublished) {
-            send(new SkateNetwork.Pose(SkaterRenderer.networkPose(pose)));
+            send(new SkateNetwork.Pose(SkaterRenderer.networkPose(pose), SkaterRenderer.networkBones(handle, pose)));
         }
     }
 
@@ -289,6 +290,8 @@ public final class SkateSession {
         if (pose[NativeSkate.CAMERA_VALID] != 0f) {
             camera = cameraFrom(pose);
         }
+        SkateAudio.local(pose, originX + pose[NativeSkate.ROOT + 12], originY + pose[NativeSkate.ROOT + 13],
+                originZ + pose[NativeSkate.ROOT + 14]);
     }
 
     private CameraPose cameraFrom(float[] p) {
@@ -330,6 +333,7 @@ public final class SkateSession {
 
     /** The world is going away: pause skating; the native session stays loaded. */
     public void onLogout() {
+        SkateAudio.stopLocal();
         active = false;
         entering = false;
         camera = null;

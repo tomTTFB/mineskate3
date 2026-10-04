@@ -12,6 +12,7 @@ import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.FormattedCharSequence;
+import dev.mineskate3.client.SkateSettings;
 import org.lwjgl.PointerBuffer;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.util.tinyfd.TinyFileDialogs;
@@ -69,12 +70,29 @@ public final class SetupScreen extends Screen {
                 .bounds(x, y + 26, (w - 8) / 2, 20).build());
         install = addRenderableWidget(Button.builder(Component.literal("Install numpy + Pillow"), b -> startInstall())
                 .bounds(x + (w + 8) / 2, y + 26, (w - 8) / 2, 20).build());
+        int bw = Math.min(150, (w - 8) / 2);
+        addRenderableWidget(Button.builder(skaterLabel(), b -> {
+            SkateSettings.setSkate3Skater(!SkateSettings.skate3Skater());
+            b.setMessage(skaterLabel());
+        }).bounds(this.width / 2 - bw - 4, this.height - 52, bw, 20).build());
+        addRenderableWidget(Button.builder(soundLabel(), b -> {
+            SkateSettings.setSounds(!SkateSettings.sounds());
+            b.setMessage(soundLabel());
+        }).bounds(this.width / 2 + 4, this.height - 52, bw, 20).build());
         addRenderableWidget(Button.builder(Component.literal("Close"), b -> onClose())
                 .bounds((this.width - 120) / 2, this.height - 28, 120, 20).build());
         if (python == null && !probing) {
             probePython();
         }
         refreshButtons();
+    }
+
+    private static Component skaterLabel() {
+        return Component.literal("Skater: " + (SkateSettings.skate3Skater() ? "Skate 3 model" : "Minecraft skin"));
+    }
+
+    private static Component soundLabel() {
+        return Component.literal("Sounds: " + (SkateSettings.sounds() ? "on" : "off"));
     }
 
     private void refreshButtons() {
@@ -226,7 +244,7 @@ public final class SetupScreen extends Screen {
             String clipped = this.font.plainSubstrByWidth(line, w);
             graphics.drawString(this.font, clipped, x, ly, 0xA0A0A0, false);
             ly += 10;
-            if (ly > this.height - 40) {
+            if (ly > this.height - 64) {
                 break;
             }
         }

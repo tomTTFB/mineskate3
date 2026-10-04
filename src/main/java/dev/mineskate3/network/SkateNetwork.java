@@ -16,8 +16,15 @@ import net.neoforged.neoforge.network.registration.PayloadRegistrar;
  * skater's pose to the players who can see them.
  */
 public final class SkateNetwork {
-    /** Six model parts and the board, each a 3x4 matrix relative to the player's feet. */
-    public static final int POSE_FLOATS = 7 * 12;
+    /**
+     * Six model parts and the board, each a 3x4 matrix relative to the
+     * player's feet, then the skater's status for sound: physical state id,
+     * wheel contacts, impact speed, wiping out (0/1) and speed in m/s.
+     */
+    public static final int POSE_FLOATS = 7 * 12 + 5;
+    public static final int STATUS_AT = 7 * 12;
+    /** Upper bound on relayed skin bones, against malformed packets. */
+    public static final int MAX_BONES = 512;
 
     private SkateNetwork() {}
 
@@ -39,6 +46,52 @@ public final class SkateNetwork {
         }
     }
 
+    /**
+     * The skin's bones (12 values each, relative to the player's feet) as half
+     * floats, with the bone layout's fingerprint. Receivers skin their own copy
+     * of the board and skater with them when the fingerprints match.
+     */
+    public record Bones(int layoutHash, short[] halves) {
+        public static final Bones NONE = new Bones(0, new short[0]);
+
+        public static Bones of(int layoutHash, float[] values, int count) {
+            short[] halves = new short[count];
+            for (int i = 0; i < count; i++) {
+                halves[i] = Float.floatToFloat16(values[i]);
+            }
+            return new Bones(layoutHash, halves);
+        }
+
+        public float[] values() {
+            float[] out = new float[halves.length];
+            for (int i = 0; i < halves.length; i++) {
+                out[i] = Float.float16ToFloat(halves[i]);
+            }
+            return out;
+        }
+
+        void write(ByteBuf buf) {
+            buf.writeInt(layoutHash);
+            ByteBufCodecs.VAR_INT.encode(buf, halves.length);
+            for (short h : halves) {
+                buf.writeShort(h);
+            }
+        }
+
+        static Bones read(ByteBuf buf) {
+            int hash = buf.readInt();
+            int count = ByteBufCodecs.VAR_INT.decode(buf);
+            if (count < 0 || count > MAX_BONES * 12) {
+                throw new IllegalArgumentException("Too many skate bones: " + count);
+            }
+            short[] halves = new short[count];
+            for (int i = 0; i < count; i++) {
+                halves[i] = buf.readShort();
+            }
+            return new Bones(hash, halves);
+        }
+    }
+
     /** Client to server: this player started or stopped skating. */
     public record State(boolean skating) implements CustomPacketPayload {
         public static final Type<State> TYPE = new Type<>(id("state"));
@@ -51,11 +104,14 @@ public final class SkateNetwork {
     }
 
     /** Client to server: this player's current pose. */
-    public record Pose(float[] data) implements CustomPacketPayload {
+    public record Pose(float[] data, Bones bones) implements CustomPacketPayload {
         public static final Type<Pose> TYPE = new Type<>(id("pose"));
         public static final StreamCodec<ByteBuf, Pose> CODEC = StreamCodec.of(
-                (buf, pose) -> writePose(buf, pose.data()),
-                buf -> new Pose(readPose(buf)));
+                (buf, pose) -> {
+                    writePose(buf, pose.data());
+                    pose.bones().write(buf);
+                },
+                buf -> new Pose(readPose(buf), Bones.read(buf)));
 
         @Override
         public Type<Pose> type() {
@@ -78,14 +134,15 @@ public final class SkateNetwork {
     }
 
     /** Server to client: another skater's pose. */
-    public record RemotePose(int entityId, float[] data) implements CustomPacketPayload {
+    public record RemotePose(int entityId, float[] data, Bones bones) implements CustomPacketPayload {
         public static final Type<RemotePose> TYPE = new Type<>(id("remote_pose"));
         public static final StreamCodec<ByteBuf, RemotePose> CODEC = StreamCodec.of(
                 (buf, pose) -> {
                     ByteBufCodecs.VAR_INT.encode(buf, pose.entityId());
                     writePose(buf, pose.data());
+                    pose.bones().write(buf);
                 },
-                buf -> new RemotePose(ByteBufCodecs.VAR_INT.decode(buf), readPose(buf)));
+                buf -> new RemotePose(ByteBufCodecs.VAR_INT.decode(buf), readPose(buf), Bones.read(buf)));
 
         @Override
         public Type<RemotePose> type() {
@@ -107,11 +164,12 @@ public final class SkateNetwork {
     }
 
     public static void register(RegisterPayloadHandlersEvent event) {
-        PayloadRegistrar registrar = event.registrar("1").optional();
+        PayloadRegistrar registrar = event.registrar("2").optional();
         registrar.playToServer(State.TYPE, State.CODEC,
                 (payload, context) -> context.enqueueWork(() -> SkateServer.onState(context.player(), payload.skating())));
         registrar.playToServer(Pose.TYPE, Pose.CODEC,
-                (payload, context) -> context.enqueueWork(() -> SkateServer.onPose(context.player(), payload.data())));
+                (payload, context) -> context.enqueueWork(
+                        () -> SkateServer.onPose(context.player(), payload.data(), payload.bones())));
         registrar.playToClient(RemoteState.TYPE, RemoteState.CODEC, (payload, context) -> context.enqueueWork(() -> {
             ClientHandler handler = clientHandler;
             if (handler != null) {

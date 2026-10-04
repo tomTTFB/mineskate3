@@ -1,0 +1,62 @@
+{
+  "roll": {
+    "subtitle": "subtitles.mineskate3.roll",
+    "sounds": [
+      "mineskate3:roll"
+    ]
+  },
+  "grind": {
+    "subtitle": "subtitles.mineskate3.grind",
+    "sounds": [
+      "mineskate3:grind"
+    ]
+  },
+  "slide": {
+    "subtitle": "subtitles.mineskate3.slide",
+    "sounds": [
+      "mineskate3:slide"
+    ]
+  },
+  "pop": {
+    "subtitle": "subtitles.mineskate3.pop",
+    "sounds": [
+      "mineskate3:pop"
+    ]
+  },
+  "land": {
+    "subtitle": "subtitles.mineskate3.land",
+    "sounds": [
+      "mineskate3:land"
+    ]
+  },
+  "land_hard": {
+    "subtitle": "subtitles.mineskate3.land_hard",
+    "sounds": [
+      "mineskate3:land_hard"
+    ]
+  },
+  "lock": {
+    "subtitle": "subtitles.mineskate3.lock",
+    "sounds": [
+      "mineskate3:lock"
+    ]
+  },
+  "bail": {
+    "subtitle": "subtitles.mineskate3.bail",
+    "sounds": [
+      "mineskate3:bail"
+    ]
+  },
+  "marker_place": {
+    "subtitle": "subtitles.mineskate3.marker_place",
+    "sounds": [
+      "mineskate3:marker_place"
+    ]
+  },
+  "marker_return": {
+    "subtitle": "subtitles.mineskate3.marker_return",
+    "sounds": [
+      "mineskate3:marker_return"
+    ]
+  }
+}

@@ -15,6 +15,7 @@ public final class MineSkate3 {
 
     public MineSkate3(IEventBus modBus) {
         modBus.addListener(SkateNetwork::register);
+        SkateSounds.register(modBus);
         SkateServer.register();
     }
 }

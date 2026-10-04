@@ -1,11 +1,8 @@
 package dev.mineskate3.client;
 
-import com.mojang.blaze3d.platform.NativeImage;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
-import dev.mineskate3.MineSkate3;
 import dev.mineskate3.network.SkateNetwork;
-import java.io.ByteArrayInputStream;
 import java.util.HashMap;
 import java.util.Map;
 import net.minecraft.client.Minecraft;
@@ -17,7 +14,6 @@ import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.renderer.entity.EntityRenderer;
 import net.minecraft.client.renderer.entity.player.PlayerRenderer;
-import net.minecraft.client.renderer.texture.DynamicTexture;
 import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceLocation;
@@ -28,26 +24,23 @@ import org.joml.Matrix4f;
 import org.joml.Vector3f;
 
 /**
- * Draws skaters: the vanilla player model with each of its six parts aimed by
- * the Skate skeleton, and the board. The local player gets the real skinned
- * Skate 3 board; other players get a box fitted to it, since their board mesh
- * lives in their own converted data.
+ * Draws skaters. With the Skate 3 skater setting on, the converted Skate 3
+ * skater; otherwise the vanilla player model with each of its six parts aimed
+ * by the Skate skeleton. The board is the real skinned Skate 3 board.
+ * Other players are skinned with this player's own copy of the meshes, posed
+ * by their relayed bones; without converted data (or with a different bone
+ * layout) they fall back to player parts and a box fitted to their board.
  */
 public final class SkaterRenderer {
     private static final ResourceLocation REMOTE_BOARD =
             ResourceLocation.withDefaultNamespace("textures/block/dark_oak_planks.png");
     private static final long REMOTE_TIMEOUT_MILLIS = 2000;
 
-    private record Remote(float[] data, long time) {}
+    private record Remote(float[] data, SkateNetwork.Bones bones, float[] boneValues, long time) {}
 
     private static final Map<Integer, Remote> REMOTES = new HashMap<>();
 
-    // The local board, read from the native session once it has loaded.
-    private static long boardHandle;
-    private static int[] boardIndices;
-    private static int[] boardLayout;
-    private static ResourceLocation[] boardTextures;
-    private static float[] boardVertices = new float[0];
+    private static float[] localBones = new float[0];
 
     private SkaterRenderer() {}
 
@@ -56,15 +49,20 @@ public final class SkaterRenderer {
     public static void remoteState(SkateNetwork.RemoteState state) {
         if (!state.skating()) {
             REMOTES.remove(state.entityId());
+            SkateAudio.removeRemote(state.entityId());
         }
     }
 
     public static void remotePose(SkateNetwork.RemotePose pose) {
-        REMOTES.put(pose.entityId(), new Remote(pose.data(), System.currentTimeMillis()));
+        SkateNetwork.Bones bones = pose.bones();
+        REMOTES.put(pose.entityId(), new Remote(pose.data(), bones,
+                bones.halves().length > 0 ? bones.values() : null, System.currentTimeMillis()));
+        SkateAudio.remote(pose.entityId(), pose.data());
     }
 
     public static void clearRemotes() {
         REMOTES.clear();
+        SkateAudio.clear();
     }
 
     /** Remote skaters draw from their relayed pose, at their interpolated position. */
@@ -76,15 +74,26 @@ public final class SkaterRenderer {
         }
         if (System.currentTimeMillis() - remote.time() > REMOTE_TIMEOUT_MILLIS) {
             REMOTES.remove(player.getId());
+            SkateAudio.removeRemote(player.getId());
             return false;
         }
-        Matrix4f[] parts = new Matrix4f[6];
-        for (int i = 0; i < 6; i++) {
-            parts[i] = unpack(remote.data(), i * 12);
+        float[] bones = remote.boneValues();
+        boolean skinnable = bones != null && SkinnedMeshes.ready()
+                && remote.bones().layoutHash() == SkinnedMeshes.layoutHash()
+                && bones.length >= SkinnedMeshes.boneCount() * 12;
+        boolean drewSkater = skinnable && SkateSettings.skate3Skater()
+                && SkinnedMeshes.render(NativeSkate.MESH_SKATER, bones, poseStack, buffers, light, 0, 0, 0);
+        if (!drewSkater) {
+            Matrix4f[] parts = new Matrix4f[6];
+            for (int i = 0; i < 6; i++) {
+                parts[i] = unpack(remote.data(), i * 12);
+            }
+            renderParts(player, parts, poseStack, buffers, light, 0, 0, 0);
         }
-        renderParts(player, parts, poseStack, buffers, light, 0, 0, 0);
-        renderBox(unpack(remote.data(), 6 * 12), poseStack, buffers.getBuffer(RenderType.entityCutoutNoCull(REMOTE_BOARD)),
-                light, 0, 0, 0);
+        if (!(skinnable && SkinnedMeshes.render(NativeSkate.MESH_BOARD, bones, poseStack, buffers, light, 0, 0, 0))) {
+            renderBox(unpack(remote.data(), 6 * 12), poseStack,
+                    buffers.getBuffer(RenderType.entityCutoutNoCull(REMOTE_BOARD)), light, 0, 0, 0);
+        }
         return true;
     }
 
@@ -114,7 +123,40 @@ public final class SkaterRenderer {
             out[dst + 10] = pose[src + 13] - ry;
             out[dst + 11] = pose[src + 14] - rz;
         }
+        int st = SkateNetwork.STATUS_AT;
+        out[st] = pose[NativeSkate.STATUS];
+        out[st + 1] = pose[NativeSkate.STATUS + 1];
+        out[st + 2] = pose[NativeSkate.STATUS + 2];
+        out[st + 3] = pose[NativeSkate.STATUS + 3];
+        out[st + 4] = speed(pose);
         return out;
+    }
+
+    static float speed(float[] pose) {
+        float vx = pose[NativeSkate.VELOCITY], vy = pose[NativeSkate.VELOCITY + 1], vz = pose[NativeSkate.VELOCITY + 2];
+        return (float) Math.sqrt(vx * vx + vy * vy + vz * vz);
+    }
+
+    /** The local skin bones for the network, relative to the skater's root. */
+    public static SkateNetwork.Bones networkBones(long handle, float[] pose) {
+        int needed = SkinnedMeshes.boneCount() * 12;
+        if (needed == 0 || handle == 0) {
+            return SkateNetwork.Bones.NONE;
+        }
+        if (localBones.length < needed) {
+            localBones = new float[needed];
+        }
+        int count = NativeSkate.poseBones(handle, localBones);
+        if (count < needed) {
+            return SkateNetwork.Bones.NONE;
+        }
+        float[] relative = java.util.Arrays.copyOf(localBones, needed);
+        for (int b = 0; b < needed; b += 12) {
+            relative[b + 9] -= pose[NativeSkate.ROOT + 12];
+            relative[b + 10] -= pose[NativeSkate.ROOT + 13];
+            relative[b + 11] -= pose[NativeSkate.ROOT + 14];
+        }
+        return SkateNetwork.Bones.of(SkinnedMeshes.layoutHash(), relative, needed);
     }
 
     // ---- the local skater ----
@@ -136,12 +178,28 @@ public final class SkaterRenderer {
         int light = LevelRenderer.getLightColor(mc.level, lightAt);
         MultiBufferSource.BufferSource buffers = mc.renderBuffers().bufferSource();
 
-        Matrix4f[] parts = new Matrix4f[6];
-        for (int i = 0; i < 6; i++) {
-            parts[i] = new Matrix4f().set(pose, NativeSkate.PARTS + i * 16);
+        float[] bones = null;
+        int needed = SkinnedMeshes.boneCount() * 12;
+        if (needed > 0) {
+            if (localBones.length < needed) {
+                localBones = new float[needed];
+            }
+            if (NativeSkate.poseBones(session.handle(), localBones) >= needed) {
+                bones = localBones;
+            }
         }
-        renderParts(mc.player, parts, poseStack, buffers, light, ox, oy, oz);
-        if (!renderBoard(session, poseStack, buffers, light, ox, oy, oz)) {
+        float fx = (float) ox, fy = (float) oy, fz = (float) oz;
+        boolean drewSkater = bones != null && SkateSettings.skate3Skater()
+                && SkinnedMeshes.render(NativeSkate.MESH_SKATER, bones, poseStack, buffers, light, fx, fy, fz);
+        if (!drewSkater) {
+            Matrix4f[] parts = new Matrix4f[6];
+            for (int i = 0; i < 6; i++) {
+                parts[i] = new Matrix4f().set(pose, NativeSkate.PARTS + i * 16);
+            }
+            renderParts(mc.player, parts, poseStack, buffers, light, ox, oy, oz);
+        }
+        if (bones == null
+                || !SkinnedMeshes.render(NativeSkate.MESH_BOARD, bones, poseStack, buffers, light, fx, fy, fz)) {
             renderBox(new Matrix4f().set(pose, NativeSkate.BOARD), poseStack,
                     buffers.getBuffer(RenderType.entityCutoutNoCull(REMOTE_BOARD)), light, ox, oy, oz);
         }
@@ -214,84 +272,6 @@ public final class SkaterRenderer {
         part.yRot = yRot;
         part.zRot = zRot;
         part.visible = wasVisible;
-    }
-
-    private static boolean loadBoard(long handle) {
-        if (boardHandle == handle && boardIndices != null) {
-            return true;
-        }
-        int status = NativeSkate.status(handle);
-        if (status != NativeSkate.STATUS_READY && status != NativeSkate.STATUS_ACTIVE) {
-            return false;
-        }
-        int[] layout = NativeSkate.boardLayout(handle);
-        if (layout == null || layout.length < 2) {
-            return false;
-        }
-        int surfaces = layout[1];
-        ResourceLocation[] textures = new ResourceLocation[surfaces];
-        Minecraft mc = Minecraft.getInstance();
-        Map<Integer, ResourceLocation> byImage = new HashMap<>();
-        for (int s = 0; s < surfaces; s++) {
-            int image = layout[2 + s * 3];
-            textures[s] = byImage.computeIfAbsent(image, i -> {
-                ResourceLocation location = ResourceLocation.fromNamespaceAndPath(MineSkate3.MODID, "board/" + i);
-                byte[] bytes = NativeSkate.boardTexture(handle, i);
-                try {
-                    NativeImage decoded = NativeImage.read(new ByteArrayInputStream(bytes));
-                    mc.getTextureManager().register(location, new DynamicTexture(decoded));
-                    return location;
-                } catch (Exception e) {
-                    MineSkate3.LOGGER.warn("Board texture {} could not be decoded", i, e);
-                    return REMOTE_BOARD;
-                }
-            });
-        }
-        boardIndices = NativeSkate.boardIndices(handle);
-        boardLayout = layout;
-        boardTextures = textures;
-        boardVertices = new float[layout[0] * 8];
-        boardHandle = handle;
-        return true;
-    }
-
-    private static boolean renderBoard(SkateSession session, PoseStack poseStack, MultiBufferSource buffers,
-            int light, double ox, double oy, double oz) {
-        long handle = session.handle();
-        if (handle == 0 || !loadBoard(handle)) {
-            return false;
-        }
-        if (NativeSkate.boardVertices(handle, boardVertices) == 0) {
-            return false;
-        }
-        PoseStack.Pose last = poseStack.last();
-        int surfaces = boardLayout[1];
-        float fx = (float) ox, fy = (float) oy, fz = (float) oz;
-        for (int s = 0; s < surfaces; s++) {
-            int first = boardLayout[3 + s * 3];
-            int count = boardLayout[4 + s * 3];
-            VertexConsumer consumer = buffers.getBuffer(RenderType.entityCutoutNoCull(boardTextures[s]));
-            for (int i = first; i + 2 < first + count; i += 3) {
-                // Entity render types draw quads: repeat the last corner.
-                vertex(consumer, last, boardIndices[i], light, fx, fy, fz);
-                vertex(consumer, last, boardIndices[i + 1], light, fx, fy, fz);
-                vertex(consumer, last, boardIndices[i + 2], light, fx, fy, fz);
-                vertex(consumer, last, boardIndices[i + 2], light, fx, fy, fz);
-            }
-        }
-        return true;
-    }
-
-    private static void vertex(VertexConsumer consumer, PoseStack.Pose pose, int index, int light,
-            float ox, float oy, float oz) {
-        int v = index * 8;
-        float[] d = boardVertices;
-        consumer.addVertex(pose, d[v] + ox, d[v + 1] + oy, d[v + 2] + oz)
-                .setColor(0xFFFFFFFF)
-                .setUv(d[v + 6], d[v + 7])
-                .setOverlay(OverlayTexture.NO_OVERLAY)
-                .setLight(light)
-                .setNormal(pose, d[v + 3], d[v + 4], d[v + 5]);
     }
 
     /** The unit cube centred on the origin, through `matrix`. */

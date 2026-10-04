@@ -1,7 +1,7 @@
 //! JNI bridge between the MineSkate 3 NeoForge mod and the Skate 3 Rust engine.
 //! Java side: `dev.mineskate3.client.NativeSkate`.
-pub mod board;
 pub mod hud;
+pub mod mesh;
 pub mod rails;
 pub mod refpack;
 pub mod retarget;
@@ -15,7 +15,7 @@ use std::sync::Mutex;
 use worker::{Host, Pad, Status, Triangle};
 
 /// Bumped when the Java-facing contract changes; the mod refuses a mismatch.
-pub const ABI_VERSION: jint = 3;
+pub const ABI_VERSION: jint = 4;
 
 fn guard<T>(fallback: T, f: impl FnOnce() -> T) -> T {
     catch_unwind(AssertUnwindSafe(f)).unwrap_or(fallback)
@@ -239,41 +239,79 @@ pub extern "system" fn Java_dev_mineskate3_client_NativeSkate_poseLength(
     worker::layout::LEN as jint
 }
 
-/// Skinned board vertices, 8 floats each (position, normal, uv), written into
-/// `out`; returns the vertex count, or 0 without a board.
+/// Loads the board and skater meshes from `assets` (shared with sessions).
+/// Returns 2 with both meshes, 1 with the board only, 0 on failure.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_dev_mineskate3_client_NativeSkate_boardVertices(
-    env: JNIEnv,
+pub extern "system" fn Java_dev_mineskate3_client_NativeSkate_meshLoad(
+    mut env: JNIEnv,
     _class: JClass,
-    handle: jlong,
-    out: JFloatArray,
+    root: JString,
 ) -> jint {
-    let Some(host) = host(handle) else { return 0 };
-    let data = host.shared.lock().unwrap().board_vertices.clone();
-    let len = env.get_array_length(&out).unwrap_or(0).max(0) as usize;
-    if data.is_empty() || len < data.len() {
-        return 0;
-    }
-    if env.set_float_array_region(&out, 0, &data).is_err() {
-        return 0;
-    }
-    (data.len() / 8) as jint
+    let Ok(root) = env.get_string(&root).map(String::from) else { return 0 };
+    guard(0, || match mesh::shared(std::path::Path::new(&root)) {
+        Ok(m) if !m.skater.surfaces.is_empty() => 2,
+        Ok(_) => 1,
+        Err(e) => {
+            eprintln!("[mineskate3] skater model: {e}");
+            0
+        }
+    })
 }
 
-/// Board layout: [vertexCount, surfaceCount, then per surface: texture,
-/// firstIndex, indexCount], or an empty array before the session loads.
+fn loaded_meshes() -> Option<std::sync::Arc<mesh::Meshes>> {
+    MESH_ROOT
+        .lock()
+        .ok()
+        .and_then(|r| r.clone())
+        .and_then(|root| mesh::shared(&root).ok())
+}
+
+static MESH_ROOT: Mutex<Option<std::path::PathBuf>> = Mutex::new(None);
+
+/// Selects the assets folder later mesh calls read (after `meshLoad`).
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_dev_mineskate3_client_NativeSkate_boardLayout(
+pub extern "system" fn Java_dev_mineskate3_client_NativeSkate_meshUse(
+    mut env: JNIEnv,
+    _class: JClass,
+    root: JString,
+) {
+    if let Ok(root) = env.get_string(&root).map(String::from) {
+        *MESH_ROOT.lock().unwrap_or_else(|e| e.into_inner()) = Some(root.into());
+    }
+}
+
+/// Bones per skin (entries of `Meshes::used`), or 0 without meshes.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_mineskate3_client_NativeSkate_meshBoneCount(
+    _env: JNIEnv,
+    _class: JClass,
+) -> jint {
+    loaded_meshes().map_or(0, |m| m.used.len() as jint)
+}
+
+/// Fingerprint of the bone layout, compared between players.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_mineskate3_client_NativeSkate_meshLayoutHash(
+    _env: JNIEnv,
+    _class: JClass,
+) -> jint {
+    loaded_meshes().map_or(0, |m| m.layout_hash())
+}
+
+/// Mesh `which` (0 board, 1 skater) layout: [vertexCount, surfaceCount, then
+/// per surface: texture, firstIndex, indexCount]; empty without meshes.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_mineskate3_client_NativeSkate_meshLayout(
     env: JNIEnv,
     _class: JClass,
-    handle: jlong,
+    which: jint,
 ) -> jintArray {
-    let board = host(handle).and_then(|h| h.shared.lock().unwrap().board.clone());
     let mut layout: Vec<jint> = Vec::new();
-    if let Some(board) = board {
-        layout.push(board.positions.len() as jint);
-        layout.push(board.surfaces.len() as jint);
-        for s in &board.surfaces {
+    if let Some(m) = loaded_meshes() {
+        let mesh = m.mesh(which as usize);
+        layout.push(mesh.positions.len() as jint);
+        layout.push(mesh.surfaces.len() as jint);
+        for s in &mesh.surfaces {
             layout.extend([s.texture as jint, s.first_index as jint, s.index_count as jint]);
         }
     }
@@ -281,33 +319,79 @@ pub extern "system" fn Java_dev_mineskate3_client_NativeSkate_boardLayout(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_dev_mineskate3_client_NativeSkate_boardIndices(
+pub extern "system" fn Java_dev_mineskate3_client_NativeSkate_meshIndices(
     env: JNIEnv,
     _class: JClass,
-    handle: jlong,
+    which: jint,
 ) -> jintArray {
-    let board = host(handle).and_then(|h| h.shared.lock().unwrap().board.clone());
-    let indices: Vec<jint> = board.map_or_else(Vec::new, |b| {
-        b.indices.iter().map(|&i| i as jint).collect()
+    let indices: Vec<jint> = loaded_meshes().map_or_else(Vec::new, |m| {
+        m.mesh(which as usize).indices.iter().map(|&i| i as jint).collect()
     });
     int_array(env, &indices)
 }
 
-/// The encoded (PNG) image of board texture `index`, or null.
+/// The encoded (PNG) image of texture `index` of mesh `which`, or null.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_dev_mineskate3_client_NativeSkate_boardTexture(
+pub extern "system" fn Java_dev_mineskate3_client_NativeSkate_meshTexture(
     env: JNIEnv,
     _class: JClass,
-    handle: jlong,
+    which: jint,
     index: jint,
 ) -> jbyteArray {
-    let board = host(handle).and_then(|h| h.shared.lock().unwrap().board.clone());
-    let Some(bytes) = board.and_then(|b| b.textures.get(index.max(0) as usize).cloned()) else {
+    let Some(bytes) = loaded_meshes()
+        .and_then(|m| m.mesh(which as usize).textures.get(index.max(0) as usize).cloned())
+    else {
         return std::ptr::null_mut();
     };
     env.byte_array_from_slice(&bytes)
         .map(JByteArray::into_raw)
         .unwrap_or(std::ptr::null_mut())
+}
+
+/// Skins mesh `which` with `bones` (12 floats per bone, see mesh.rs) into
+/// `out` (8 floats per vertex). Returns the vertex count, 0 on failure.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_mineskate3_client_NativeSkate_meshSkin(
+    env: JNIEnv,
+    _class: JClass,
+    which: jint,
+    bones: JFloatArray,
+    out: JFloatArray,
+) -> jint {
+    let Some(m) = loaded_meshes() else { return 0 };
+    let mut b = vec![0.0f32; m.used.len() * 12];
+    if env.get_array_length(&bones).unwrap_or(0) < b.len() as jint
+        || env.get_float_array_region(&bones, 0, &mut b).is_err()
+    {
+        return 0;
+    }
+    let mut vertices = Vec::new();
+    if !guard(false, || m.skin(which as usize, &b, &mut vertices)) {
+        return 0;
+    }
+    let len = env.get_array_length(&out).unwrap_or(0).max(0) as usize;
+    if len < vertices.len() || env.set_float_array_region(&out, 0, &vertices).is_err() {
+        return 0;
+    }
+    (vertices.len() / 8) as jint
+}
+
+/// The session's newest bones (session space, 12 floats each); returns the
+/// float count, or 0 before the first pose.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_mineskate3_client_NativeSkate_poseBones(
+    env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    out: JFloatArray,
+) -> jint {
+    let Some(host) = host(handle) else { return 0 };
+    let bones = host.shared.lock().unwrap().bones.clone();
+    let len = env.get_array_length(&out).unwrap_or(0).max(0) as usize;
+    if bones.is_empty() || len < bones.len() || env.set_float_array_region(&out, 0, &bones).is_err() {
+        return 0;
+    }
+    bones.len() as jint
 }
 
 #[unsafe(no_mangle)]

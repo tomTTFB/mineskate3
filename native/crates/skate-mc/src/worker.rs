@@ -1,9 +1,9 @@
 //! One Skate session per world, on its own thread, as the mashup runs it.
 //! Leaving skate mode only pauses the session: decoded animation banks, graphs
 //! and the board stay resident so the next toggle is instant.
-use crate::{board::Board, hud::Hud, rails, retarget};
+use crate::{hud::Hud, mesh::{self, Meshes}, rails, retarget};
 use bevy::math::{Mat4, Vec3};
-use skate_host::bridge::{InputFrame, PreparedCollision, Pose, Session};
+use skate_host::bridge::{InputFrame, PreparedCollision, Pose, Session, Status as SkaterStatus};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, mpsc};
 
@@ -20,7 +20,11 @@ pub mod layout {
     pub const PARTS: usize = 33; // 6 x 16: head, body, right arm, left arm, right leg, left leg
     /// 16: world matrix taking the unit cube onto the board's box.
     pub const BOARD: usize = PARTS + 16 * super::retarget::PARTS;
-    pub const LEN: usize = BOARD + 16;
+    /// 10: physical state id, wheel contacts, impact speed, wiping out,
+    /// marker visible, can place, can return, return progress, markers
+    /// placed, markers returned.
+    pub const STATUS: usize = BOARD + 16;
+    pub const LEN: usize = STATUS + 10;
 }
 
 #[derive(Clone, Copy, Default)]
@@ -54,8 +58,9 @@ pub struct Shared {
     pub tick: u64,
     pub out: Vec<f32>,
     pub state: String,
-    pub board: Option<Arc<Board>>,
-    pub board_vertices: Vec<f32>,
+    pub meshes: Option<Arc<Meshes>>,
+    /// World (session space) bones for `Meshes::used`, 12 floats each.
+    pub bones: Vec<f32>,
     pub rails: usize,
     /// 1 when the original trick HUD runs, 0 when its data is missing,
     /// -1 when it stopped on an error (see `hud_error`).
@@ -89,8 +94,8 @@ impl Host {
             tick: 0,
             out: vec![0.0; layout::LEN],
             state: String::new(),
-            board: None,
-            board_vertices: Vec::new(),
+            meshes: None,
+            bones: Vec::new(),
             rails: 0,
             hud_status: 0,
             hud_error: String::new(),
@@ -147,7 +152,7 @@ type Built = (u64, Result<(PreparedCollision, usize), String>);
 fn run(root: PathBuf, receive: mpsc::Receiver<Job>, shared: &Mutex<Shared>) -> Result<(), String> {
     let started = std::time::Instant::now();
     let mut session = Session::new(&root, vec![PLACEHOLDER], vec![], [0.0; 3], 0.0)?;
-    let board = Board::load(&root).map_err(|e| format!("Skateboard model: {e}"))?;
+    let meshes = mesh::shared(&root).map_err(|e| format!("Skater model: {e}"))?;
     // The trick HUD is optional: older conversions do not include it.
     let mut hud = match Hud::load(&root, &session.scoring()) {
         Ok(hud) => {
@@ -178,7 +183,7 @@ fn run(root: PathBuf, receive: mpsc::Receiver<Job>, shared: &Mutex<Shared>) -> R
     );
     {
         let mut s = shared.lock().unwrap();
-        s.board = Some(Arc::new(board));
+        s.meshes = Some(meshes);
         s.status = Status::Ready;
     }
 
@@ -267,7 +272,7 @@ fn run(root: PathBuf, receive: mpsc::Receiver<Job>, shared: &Mutex<Shared>) -> R
                     hud_failed(e, &mut hud);
                 }
                 active = true;
-                publish(shared, &pose, true)?;
+                publish(shared, &pose, session.status(), true)?;
             }
             Job::Suspend => {
                 active = false;
@@ -306,7 +311,7 @@ fn run(root: PathBuf, receive: mpsc::Receiver<Job>, shared: &Mutex<Shared>) -> R
                     advanced = true;
                 }
                 if advanced {
-                    publish(shared, &session.pose(), false)?;
+                    publish(shared, &session.pose(), session.status(), false)?;
                     if let Some(h) = hud.as_ref() {
                         let mut draws = Vec::new();
                         match h.draws(&mut draws) {
@@ -325,11 +330,16 @@ fn put(out: &mut [f32], at: usize, m: Mat4) {
     out[at..at + 16].copy_from_slice(&m.to_cols_array());
 }
 
-fn publish(shared: &Mutex<Shared>, pose: &Pose, activated: bool) -> Result<(), String> {
+fn publish(
+    shared: &Mutex<Shared>,
+    pose: &Pose,
+    status: SkaterStatus,
+    activated: bool,
+) -> Result<(), String> {
     if !pose.root.is_finite() || pose.bones.iter().any(|b| !b.is_finite()) {
         return Err("Skate published a non-finite pose".into());
     }
-    let board = shared.lock().unwrap().board.clone();
+    let meshes = shared.lock().unwrap().meshes.clone();
     let world = |name: &str| {
         pose.names
             .iter()
@@ -352,7 +362,7 @@ fn publish(shared: &Mutex<Shared>, pose: &Pose, activated: bool) -> Result<(), S
     for (i, m) in parts.iter().enumerate() {
         put(&mut out, layout::PARTS + i * 16, *m);
     }
-    let board_box = board.as_ref().and_then(|b| b.bounds_in("SKATEBOARD_ROOT"));
+    let board_box = meshes.as_ref().and_then(|m| m.board_bounds_in("SKATEBOARD_ROOT"));
     let board_matrix = match (world("SKATEBOARD_ROOT"), board_box) {
         (Some(bone), Some(local)) => bone * local,
         _ => {
@@ -361,13 +371,26 @@ fn publish(shared: &Mutex<Shared>, pose: &Pose, activated: bool) -> Result<(), S
         }
     };
     put(&mut out, layout::BOARD, board_matrix);
-    let mut vertices = Vec::new();
-    if let Some(board) = &board {
-        board.skin(world, &mut vertices);
+    let st = status;
+    out[layout::STATUS..layout::LEN].copy_from_slice(&[
+        st.state as f32,
+        f32::from(st.wheel_contacts),
+        st.impact_speed,
+        f32::from(u8::from(st.wiping_out)),
+        f32::from(u8::from(st.marker_visible)),
+        f32::from(u8::from(st.marker_can_place)),
+        f32::from(u8::from(st.marker_can_return)),
+        st.marker_progress,
+        st.markers_placed as f32,
+        st.markers_returned as f32,
+    ]);
+    let mut bones = Vec::new();
+    if let Some(meshes) = &meshes {
+        meshes.export_bones(world, &mut bones);
     }
     let mut s = shared.lock().unwrap();
     s.out = out;
-    s.board_vertices = vertices;
+    s.bones = bones;
     s.tick = pose.tick;
     s.state.clone_from(&pose.state);
     s.generation += 1;

@@ -1,5 +1,16 @@
 {
   "key.categories.mineskate3": "MineSkate 3",
   "key.mineskate3.toggle": "Toggle Skate 3 mode",
-  "mineskate3.setup.title": "Skate 3 setup"
+  "mineskate3.setup.title": "Skate 3 setup",
+  "subtitles.mineskate3.roll": "Skateboard rolls",
+  "subtitles.mineskate3.grind": "Skateboard grinds",
+  "subtitles.mineskate3.slide": "Skateboard slides",
+  "subtitles.mineskate3.pop": "Skateboard pops",
+  "subtitles.mineskate3.land": "Skateboard lands",
+  "subtitles.mineskate3.land_hard": "Skateboard slams down",
+  "subtitles.mineskate3.lock": "Trucks lock in",
+  "subtitles.mineskate3.bail": "Skater bails",
+  "subtitles.mineskate3.marker_place": "Session marker placed",
+  "subtitles.mineskate3.marker_return": "Session marker return",
+  "mineskate3.setup.skater": "Skater"
 }

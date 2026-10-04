@@ -47,6 +47,28 @@ If you converted your data before the HUD existed, open
 **Mods > MineSkate 3 > Config**, select your `default.xex` again and press
 **Add trick HUD**; then toggle skate mode off and on.
 
+## Session markers
+
+As in Skate 3: hold **LB** (keyboard **Q**) to bring up the marker panel,
+press **D-pad down** (down arrow) to drop a marker, and hold **D-pad up**
+(up arrow) to return to it.
+
+## Skater, board and sounds
+
+**Mods > MineSkate 3 > Config** has two switches:
+
+- **Skater**: the converted Skate 3 skater (default), or the Minecraft player
+  model with your own skin.
+- **Sounds**: wheel roll, pops, landings, grinds and slides, bails and marker
+  chimes. Skate 3's own audio cannot be extracted yet, so these are original
+  synthesised effects (`sounds/generate.py`), driven by the engine's physics
+  state.
+
+Other players with the mod see your real board, and your Skate 3 skater if
+they have that switch on: your skeleton is sent to them and they pose their
+own converted copy of the meshes with it. Players without converted data see
+the Minecraft model and a plain board shape instead.
+
 ## Controls
 
 | Action | Controller | Keyboard + mouse |
@@ -115,6 +137,7 @@ Linux and macOS and packages all of them into one jar
   may take a moment to become solid for the board.
 - Armour and held items are not drawn while skating.
 - No controller vibration yet.
+- The sounds are stand-ins, not Skate 3's own; their mix is untuned.
 
 ## Licence
 

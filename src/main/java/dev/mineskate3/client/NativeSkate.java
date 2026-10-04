@@ -13,7 +13,7 @@ import java.util.Locale;
  * Implemented in native/crates/skate-mc/src/lib.rs.
  */
 public final class NativeSkate {
-    public static final int ABI_VERSION = 3;
+    public static final int ABI_VERSION = 4;
 
     public static final int STATUS_LOADING = 0;
     public static final int STATUS_READY = 1;
@@ -29,6 +29,13 @@ public final class NativeSkate {
     public static final int VELOCITY = 30;
     public static final int PARTS = 33;
     public static final int BOARD = PARTS + 6 * 16;
+    /** State id, wheel contacts, impact speed, wiping out, marker visible, can place, can return,
+     *  return progress, markers placed, markers returned. */
+    public static final int STATUS = BOARD + 16;
+    public static final int POSE_LENGTH = STATUS + 10;
+
+    public static final int MESH_BOARD = 0;
+    public static final int MESH_SKATER = 1;
 
     private static Path library;
     private static Throwable failure;
@@ -129,13 +136,24 @@ public final class NativeSkate {
 
     static native int poseLength();
 
-    static native int boardVertices(long handle, float[] out);
+    /** Loads the board and skater meshes: 2 both, 1 board only, 0 failed. */
+    static native int meshLoad(String assetsRoot);
 
-    static native int[] boardLayout(long handle);
+    static native void meshUse(String assetsRoot);
 
-    static native int[] boardIndices(long handle);
+    static native int meshBoneCount();
 
-    static native byte[] boardTexture(long handle, int index);
+    static native int meshLayoutHash();
+
+    static native int[] meshLayout(int which);
+
+    static native int[] meshIndices(int which);
+
+    static native byte[] meshTexture(int which, int index);
+
+    static native int meshSkin(int which, float[] bones, float[] out);
+
+    static native int poseBones(long handle, float[] out);
 
     static native int rails(long handle);
 

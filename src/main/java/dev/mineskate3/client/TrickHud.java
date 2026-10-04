@@ -63,29 +63,87 @@ public final class TrickHud {
             String[] parts = entries[i].split("\\|");
             int width = Integer.parseInt(parts[1]);
             int height = Integer.parseInt(parts[2]);
-            try {
-                byte[] rgba = Files.readAllBytes(root.resolve(parts[0]));
-                NativeImage image = new NativeImage(width, height, false);
-                for (int y = 0; y < height; y++) {
-                    for (int x = 0; x < width; x++) {
-                        int at = (y * width + x) * 4;
-                        // NativeImage packs ABGR.
-                        image.setPixelRGBA(x, y, (rgba[at + 3] & 0xFF) << 24 | (rgba[at + 2] & 0xFF) << 16
-                                | (rgba[at + 1] & 0xFF) << 8 | (rgba[at] & 0xFF));
-                    }
-                }
-                DynamicTexture texture = new DynamicTexture(image);
-                texture.setFilter(true, false);
-                ResourceLocation location = ResourceLocation.fromNamespaceAndPath(MineSkate3.MODID, "hud/" + i);
-                mc.getTextureManager().register(location, texture);
-                loaded[i] = location;
-            } catch (IOException | RuntimeException e) {
-                MineSkate3.LOGGER.warn("Trick HUD texture {} could not be loaded", parts[0], e);
-            }
+            loaded[i] = uploadRaw(root.resolve(parts[0]), width, height,
+                    ResourceLocation.fromNamespaceAndPath(MineSkate3.MODID, "hud/" + i));
         }
         textures = loaded;
         texturesHandle = handle;
         return true;
+    }
+
+    private static ResourceLocation white;
+
+    /** A 1x1 white texture, for untextured HUD geometry. */
+    static ResourceLocation white() {
+        if (white == null) {
+            NativeImage image = new NativeImage(1, 1, false);
+            image.setPixelRGBA(0, 0, 0xFFFFFFFF);
+            white = ResourceLocation.fromNamespaceAndPath(MineSkate3.MODID, "white");
+            Minecraft.getInstance().getTextureManager().register(white, new DynamicTexture(image));
+        }
+        return white;
+    }
+
+    /** Uploads a raw RGBA file (as the HUD converters write them); null if it cannot. */
+    static ResourceLocation uploadRaw(Path file, int width, int height, ResourceLocation location) {
+        try {
+            byte[] rgba = Files.readAllBytes(file);
+            if (rgba.length != width * height * 4) {
+                throw new IOException("unexpected size " + rgba.length);
+            }
+            NativeImage image = new NativeImage(width, height, false);
+            for (int y = 0; y < height; y++) {
+                for (int x = 0; x < width; x++) {
+                    int at = (y * width + x) * 4;
+                    // NativeImage packs ABGR.
+                    image.setPixelRGBA(x, y, (rgba[at + 3] & 0xFF) << 24 | (rgba[at + 2] & 0xFF) << 16
+                            | (rgba[at + 1] & 0xFF) << 8 | (rgba[at] & 0xFF));
+                }
+            }
+            DynamicTexture texture = new DynamicTexture(image);
+            texture.setFilter(true, false);
+            Minecraft.getInstance().getTextureManager().register(location, texture);
+            return location;
+        } catch (IOException | RuntimeException e) {
+            MineSkate3.LOGGER.warn("HUD texture {} could not be loaded", file, e);
+            return null;
+        }
+    }
+
+    /** Sets up blending and the colour-transform shader; false if it is unavailable. */
+    static boolean begin(GuiGraphics graphics) {
+        if (shader == null) {
+            return false;
+        }
+        graphics.flush();
+        RenderSystem.enableBlend();
+        RenderSystem.defaultBlendFunc();
+        RenderSystem.disableDepthTest();
+        RenderSystem.setShader(() -> shader);
+        return true;
+    }
+
+    /** One textured triangle list: x, y, u, v per vertex from `data[start]`. */
+    static void triangles(Matrix4f matrix, ResourceLocation texture, float[] multiply, float[] add, float[] data,
+            int start, int vertices) {
+        RenderSystem.setShaderTexture(0, texture);
+        shader.safeGetUniform("ColorMultiply").set(multiply[0], multiply[1], multiply[2], multiply[3]);
+        shader.safeGetUniform("ColorAdd").set(add[0], add[1], add[2], add[3]);
+        BufferBuilder buffer = Tesselator.getInstance().begin(VertexFormat.Mode.TRIANGLES,
+                DefaultVertexFormat.POSITION_TEX);
+        int count = vertices - vertices % 3;
+        for (int v = 0; v < count; v++) {
+            int p = start + v * 4;
+            buffer.addVertex(matrix, data[p], data[p + 1], 0f).setUv(data[p + 2], data[p + 3]);
+        }
+        BufferUploader.drawWithShader(buffer.buildOrThrow());
+    }
+
+    static void end() {
+        shader.safeGetUniform("ColorMultiply").set(1f, 1f, 1f, 1f);
+        shader.safeGetUniform("ColorAdd").set(0f, 0f, 0f, 0f);
+        RenderSystem.enableDepthTest();
+        RenderSystem.disableBlend();
     }
 
     public static void render(GuiGraphics graphics) {
@@ -105,41 +163,30 @@ public final class TrickHud {
         if (length <= 0) {
             return;
         }
-        graphics.flush();
+        if (!begin(graphics)) {
+            return;
+        }
         float sx = graphics.guiWidth() / STAGE_WIDTH;
         float sy = graphics.guiHeight() / STAGE_HEIGHT;
         Matrix4f matrix = new Matrix4f(graphics.pose().last().pose()).scale(sx, sy, 1f);
-        RenderSystem.enableBlend();
-        RenderSystem.defaultBlendFunc();
-        RenderSystem.disableDepthTest();
-        RenderSystem.setShader(() -> shader);
+        float[] multiply = new float[4];
+        float[] add = new float[4];
         int at = 0;
         while (at + 10 <= length) {
             int texture = (int) draws[at];
             int vertices = (int) draws[at + 1];
             int start = at + 10;
-            int end = start + vertices * 4;
-            if (end > length) {
+            int next = start + vertices * 4;
+            if (next > length) {
                 break;
             }
             if (texture >= 0 && texture < textures.length && textures[texture] != null && vertices >= 3) {
-                RenderSystem.setShaderTexture(0, textures[texture]);
-                shader.safeGetUniform("ColorMultiply").set(draws[at + 2], draws[at + 3], draws[at + 4], draws[at + 5]);
-                shader.safeGetUniform("ColorAdd").set(draws[at + 6], draws[at + 7], draws[at + 8], draws[at + 9]);
-                BufferBuilder buffer = Tesselator.getInstance().begin(VertexFormat.Mode.TRIANGLES,
-                        DefaultVertexFormat.POSITION_TEX);
-                int count = vertices - vertices % 3;
-                for (int v = 0; v < count; v++) {
-                    int p = start + v * 4;
-                    buffer.addVertex(matrix, draws[p], draws[p + 1], 0f).setUv(draws[p + 2], draws[p + 3]);
-                }
-                BufferUploader.drawWithShader(buffer.buildOrThrow());
+                System.arraycopy(draws, at + 2, multiply, 0, 4);
+                System.arraycopy(draws, at + 6, add, 0, 4);
+                triangles(matrix, textures[texture], multiply, add, draws, start, vertices);
             }
-            at = end;
+            at = next;
         }
-        shader.safeGetUniform("ColorMultiply").set(1f, 1f, 1f, 1f);
-        shader.safeGetUniform("ColorAdd").set(0f, 0f, 0f, 0f);
-        RenderSystem.enableDepthTest();
-        RenderSystem.disableBlend();
+        end();
     }
 }

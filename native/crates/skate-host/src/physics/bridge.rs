@@ -38,6 +38,22 @@ pub struct ScoringHud {
     pub modified_trick: bool,
     pub close_tricks: bool,
 }
+/// What the skater is doing, for sound and the session-marker display.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Status {
+    /// skate_core::player::state::PhysicalStateId as a number.
+    pub state: u32,
+    pub wheel_contacts: u8,
+    /// Strongest closing speed against this tick's contacts (m/s).
+    pub impact_speed: f32,
+    pub wiping_out: bool,
+    pub marker_visible: bool,
+    pub marker_can_place: bool,
+    pub marker_can_return: bool,
+    pub marker_progress: f32,
+    pub markers_placed: u64,
+    pub markers_returned: u64,
+}
 pub struct Pose {
     pub root: Mat4,
     pub bones: Vec<Mat4>,
@@ -175,6 +191,22 @@ impl Session {
             },
         );
         self.advance_published()
+    }
+    pub fn status(&self) -> Status {
+        let ground = &self.physics.riding.ground;
+        let (visible, can_place, can_return, progress, placed, returned) = self.markers.state();
+        Status {
+            state: self.skater.player_state.current() as u32,
+            wheel_contacts: ground.wheel_contact_count,
+            impact_speed: ground.maximum_closing_speed,
+            wiping_out: self.physics.board_wiping_out,
+            marker_visible: visible,
+            marker_can_place: can_place,
+            marker_can_return: can_return,
+            marker_progress: progress,
+            markers_placed: placed,
+            markers_returned: returned,
+        }
     }
     pub fn scoring(&self) -> ScoringHud {
         self.skater.scoring.hud()

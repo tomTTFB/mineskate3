@@ -44,10 +44,10 @@ public final class SkateServer {
         }
     }
 
-    public static void onPose(Player player, float[] data) {
+    public static void onPose(Player player, float[] data, SkateNetwork.Bones bones) {
         if (player instanceof ServerPlayer serverPlayer && isSkating(player)) {
             PacketDistributor.sendToPlayersTrackingEntity(serverPlayer,
-                    new SkateNetwork.RemotePose(serverPlayer.getId(), data));
+                    new SkateNetwork.RemotePose(serverPlayer.getId(), data, bones));
         }
     }
 

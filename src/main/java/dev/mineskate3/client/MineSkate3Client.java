@@ -181,6 +181,7 @@ public final class MineSkate3Client {
     private void onRenderGui(RenderGuiEvent.Post event) {
         if (!Minecraft.getInstance().options.hideGui) {
             TrickHud.render(event.getGuiGraphics());
+            MarkerHud.render(event.getGuiGraphics());
         }
         SkateHud.render(event.getGuiGraphics());
     }

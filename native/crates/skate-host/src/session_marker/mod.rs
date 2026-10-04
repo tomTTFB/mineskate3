@@ -27,6 +27,9 @@ pub(crate) struct SessionMarker {
     blocked_until_release: bool,
     ui_time: f64,
     last_batch: u64,
+    /// Counts of successful placements and returns, for host feedback.
+    pub placed: u64,
+    pub returned: u64,
 }
 
 
@@ -35,6 +38,11 @@ impl Runtime {
     pub fn load(root: &std::path::Path) -> Result<Self,String> { Ok(Self{session:SessionMarker::default(),validation:validation::Validation::load(root)?}) }
     pub fn suspend(&mut self) { self.session.hold.cancel(); self.session.blocked_until_release=true; self.session.ui_time=0.; }
     pub fn collect_time(&mut self,dt:f64) { self.session.ui_time+=dt; }
+    /// visible, can place, can return, return-hold progress, placed and returned counts.
+    pub fn state(&self) -> (bool, bool, bool, f32, u64, u64) {
+        let s = &self.session;
+        (s.visible, s.can_place, s.can_return, s.progress, s.placed, s.returned)
+    }
     pub fn advance(&mut self,input:&ControllerInput,physics:&GamePhysics,skater:&mut SkaterRuntime) {
         update(&mut self.session,input,physics,skater,&self.validation);
     }
@@ -98,6 +106,7 @@ fn update(session:&mut SessionMarker,input:&ControllerInput,physics:&GamePhysics
                 foot_forward: skater.animation.foot_forward(),
                 generation: 0,
             });
+            session.placed += 1;
             bevy::log::info!("Skate session marker placed");
         } else {
             bevy::log::info!("Skate session marker placement refused");
@@ -127,6 +136,7 @@ fn update(session:&mut SessionMarker,input:&ControllerInput,physics:&GamePhysics
                         skater
                             .teleport_state
                             .request_manual(target.transform, target.on_board);
+                        session.returned += 1;
                         bevy::log::info!("Skate session marker returned");
                     }
                     Err(e) => {
