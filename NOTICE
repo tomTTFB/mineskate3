@@ -27,6 +27,11 @@ Skate 3 Rust Engine
   (native/crates/skate-mc/src/board.rs) and the converter entry point
   (converter/mineskate_convert.py) are adapted from it.
 
+SDL_GameControllerDB
+  https://github.com/mdqinc/SDL_GameControllerDB
+  Controller mappings in src/main/resources/mineskate3/controllers/,
+  zlib licence (LICENSE-SDL_GameControllerDB.txt beside it).
+
 No Skate 3, Minecraft or other game content is included. Skate 3 belongs to
 Electronic Arts; Minecraft to Mojang Studios. This project is not affiliated
 with either.

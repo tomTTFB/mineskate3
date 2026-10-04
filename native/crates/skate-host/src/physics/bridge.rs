@@ -312,6 +312,14 @@ impl InputFrame {
     pub fn controller(&self) -> Option<usize> {
         self.samples.iter().position(Result::is_ok)
     }
+    /// The first connected pad: slot, buttons, triggers, left and right sticks.
+    pub fn pad(&self) -> Option<(usize, u16, [u8; 2], [i16; 2], [i16; 2])> {
+        self.samples.iter().enumerate().find_map(|(i, s)| {
+            s.as_ref()
+                .ok()
+                .map(|p| (i, p.state.buttons, p.state.triggers, p.state.left, p.state.right))
+        })
+    }
     pub fn buttons(&self) -> u16 {
         self.samples
             .iter()

@@ -6,8 +6,9 @@
 //! follows the skater's left. Lengths are stretched to the skater's own limbs
 //! so hands and feet land where the animation puts them.
 //!
-//! Output matrices map a model part's local space (pixels, the vanilla model's
-//! y-down convention, pivot at the origin) into world space.
+//! Output matrices map a model part's local space (blocks, as ModelPart
+//! renders it after its own division by 16, in the vanilla model's y-down
+//! convention, pivot at the origin) into world space.
 use bevy::math::{Mat4, Vec3, Vec4};
 
 pub const HEAD: usize = 0;
@@ -25,7 +26,7 @@ const ANKLE_TO_SOLE: f32 = 0.08;
 const WRIST_TO_KNUCKLE: f32 = 0.08;
 
 /// Model part transform: local x to `left`, local y down the limb, local z to
-/// the back, each scaled to pixels; `length_scale` stretches local y only.
+/// the back; `length_scale` stretches local y only.
 fn part(pivot: Vec3, down: Vec3, left_hint: Vec3, length_scale: f32) -> Mat4 {
     let down = down.normalize_or(Vec3::NEG_Y);
     let mut left = left_hint - down * left_hint.dot(down);
@@ -37,9 +38,9 @@ fn part(pivot: Vec3, down: Vec3, left_hint: Vec3, length_scale: f32) -> Mat4 {
     // (+x left, +y down, +z back) is.
     let back = left.cross(down);
     Mat4::from_cols(
-        (left * PIXEL).extend(0.0),
-        (down * PIXEL * length_scale).extend(0.0),
-        (back * PIXEL).extend(0.0),
+        left.extend(0.0),
+        (down * length_scale).extend(0.0),
+        back.extend(0.0),
         Vec4::new(pivot.x, pivot.y, pivot.z, 1.0),
     )
 }
@@ -123,11 +124,12 @@ mod tests {
         };
         let parts = pose(joints).unwrap();
         let body = parts[BODY];
-        assert!(body.x_axis.truncate().normalize().abs_diff_eq(Vec3::X, 1e-4));
+        // Unit width and depth: ModelPart already renders in blocks.
+        assert!(body.x_axis.truncate().abs_diff_eq(Vec3::X, 1e-4));
         assert!(body.y_axis.truncate().normalize().abs_diff_eq(Vec3::NEG_Y, 1e-4));
         assert!(body.z_axis.truncate().normalize().abs_diff_eq(Vec3::NEG_Z, 1e-4));
         // A leg's foot end (local y = 12px) lands at the sole.
-        let sole = parts[LEFT_LEG].transform_point3(Vec3::new(0., 12., 0.));
+        let sole = parts[LEFT_LEG].transform_point3(Vec3::new(0., 12. * PIXEL, 0.));
         assert!(sole.abs_diff_eq(Vec3::new(0.1, 0.02, 0.), 1e-3), "{sole}");
         assert!(parts[HEAD].y_axis.truncate().normalize().abs_diff_eq(Vec3::NEG_Y, 1e-4));
     }

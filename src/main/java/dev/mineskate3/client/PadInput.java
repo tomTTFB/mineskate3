@@ -1,15 +1,26 @@
 package dev.mineskate3.client;
 
 import com.mojang.blaze3d.platform.InputConstants;
+import dev.mineskate3.MineSkate3;
+import dev.mineskate3.client.setup.SkateData;
+import java.io.InputStream;
+import java.nio.ByteBuffer;
 import net.minecraft.client.Minecraft;
 import org.lwjgl.glfw.GLFW;
 import org.lwjgl.glfw.GLFWGamepadState;
+import org.lwjgl.system.MemoryUtil;
 
 /**
  * Skate reads an Xbox 360 pad: button bits, trigger bytes and signed stick
- * axes, y up. A real controller is used when GLFW sees one; otherwise the
- * keyboard and mouse stand in, with mouse movement as the right stick so
- * flick-it tricks still work.
+ * axes, y up. Controllers are tried in this order:
+ * <ol>
+ * <li>XInput, through the engine's own raw transport (Windows): Xbox pads and
+ * anything Steam Input presents as one, exactly as Skate 3 reads them;</li>
+ * <li>GLFW gamepads, with SDL_GameControllerDB mappings bundled so PlayStation,
+ * Switch and generic pads are recognised on every platform;</li>
+ * <li>keyboard and mouse, with mouse movement as the right stick so flick-it
+ * tricks still work.</li>
+ * </ol>
  */
 public final class PadInput {
     // XInput button bits.
@@ -43,8 +54,13 @@ public final class PadInput {
     public int ry;
     /** Name of the controller in use, or null for keyboard and mouse. */
     public String controllerName;
+    /** A joystick GLFW sees but has no gamepad mapping for, if any. */
+    public String unrecognisedName;
 
     private final GLFWGamepadState state = GLFWGamepadState.create();
+    private final int[] xinput = new int[7];
+    private static boolean mappingsLoaded;
+    private static boolean nativeTried;
     private double lastMouseX = Double.NaN;
     private double lastMouseY = Double.NaN;
     private double mouseStickX;
@@ -62,15 +78,21 @@ public final class PadInput {
     public void poll(float dt, boolean blocked) {
         clear();
         controllerName = null;
+        unrecognisedName = null;
+        if (readXInput(blocked)) {
+            lastMouseX = Double.NaN;
+            return;
+        }
         int pad = findGamepad();
         if (pad >= 0) {
             controllerName = GLFW.glfwGetGamepadName(pad);
             if (!blocked) {
-                readGamepad();
+                readGamepad(pad);
             }
             lastMouseX = Double.NaN;
             return;
         }
+        unrecognisedName = findUnrecognised();
         if (blocked) {
             lastMouseX = Double.NaN;
             mouseStickX = mouseStickY = 0;
@@ -79,7 +101,72 @@ public final class PadInput {
         readKeyboardAndMouse(dt);
     }
 
+    /** The engine library carries the XInput reader; load it early so pads work before the first J. */
+    private static boolean nativeReady() {
+        if (NativeSkate.library() != null) {
+            return true;
+        }
+        if (nativeTried) {
+            return false;
+        }
+        nativeTried = true;
+        try {
+            NativeSkate.load(SkateData.root().resolve("natives"));
+            return true;
+        } catch (Exception e) {
+            MineSkate3.LOGGER.warn("No native controller input: {}", e.getMessage());
+            return false;
+        }
+    }
+
+    private boolean readXInput(boolean blocked) {
+        if (!NativeSkate.platform().startsWith("windows") || !nativeReady()) {
+            return false;
+        }
+        int slot = NativeSkate.pollXInput(xinput);
+        if (slot < 0) {
+            return false;
+        }
+        controllerName = "Xbox controller " + (slot + 1) + " (XInput)";
+        if (!blocked) {
+            buttons = xinput[0] & 0xFFFF;
+            leftTrigger = xinput[1];
+            rightTrigger = xinput[2];
+            lx = xinput[3];
+            ly = xinput[4];
+            rx = xinput[5];
+            ry = xinput[6];
+        }
+        return true;
+    }
+
+    /** Adds the bundled SDL_GameControllerDB mappings to GLFW's built-in ones (main thread). */
+    private static void loadMappings() {
+        if (mappingsLoaded) {
+            return;
+        }
+        mappingsLoaded = true;
+        try (InputStream in = PadInput.class.getResourceAsStream("/mineskate3/controllers/gamecontrollerdb.txt")) {
+            if (in == null) {
+                return;
+            }
+            byte[] text = in.readAllBytes();
+            ByteBuffer buffer = MemoryUtil.memAlloc(text.length + 1);
+            try {
+                buffer.put(text).put((byte) 0).flip();
+                if (!GLFW.glfwUpdateGamepadMappings(buffer)) {
+                    MineSkate3.LOGGER.warn("GLFW rejected some controller mappings");
+                }
+            } finally {
+                MemoryUtil.memFree(buffer);
+            }
+        } catch (Exception e) {
+            MineSkate3.LOGGER.warn("Controller mappings could not be loaded", e);
+        }
+    }
+
     private static int findGamepad() {
+        loadMappings();
         for (int jid = GLFW.GLFW_JOYSTICK_1; jid <= GLFW.GLFW_JOYSTICK_LAST; jid++) {
             if (GLFW.glfwJoystickPresent(jid) && GLFW.glfwJoystickIsGamepad(jid)) {
                 return jid;
@@ -88,8 +175,22 @@ public final class PadInput {
         return -1;
     }
 
+    private static String findUnrecognised() {
+        for (int jid = GLFW.GLFW_JOYSTICK_1; jid <= GLFW.GLFW_JOYSTICK_LAST; jid++) {
+            if (GLFW.glfwJoystickPresent(jid) && !GLFW.glfwJoystickIsGamepad(jid)) {
+                String name = GLFW.glfwGetJoystickName(jid);
+                return name != null ? name : "joystick " + (jid + 1);
+            }
+        }
+        return null;
+    }
+
     /** Toggle chord on a controller: both sticks clicked, as in the mashup. */
     public boolean toggleChordHeld() {
+        int chord = LEFT_THUMB | RIGHT_THUMB;
+        if (NativeSkate.platform().startsWith("windows") && nativeReady() && NativeSkate.pollXInput(xinput) >= 0) {
+            return (xinput[0] & chord) == chord;
+        }
         int pad = findGamepad();
         if (pad < 0 || !GLFW.glfwGetGamepadState(pad, state)) {
             return false;
@@ -98,9 +199,8 @@ public final class PadInput {
                 && state.buttons(GLFW.GLFW_GAMEPAD_BUTTON_RIGHT_THUMB) == GLFW.GLFW_PRESS;
     }
 
-    private void readGamepad() {
-        int pad = findGamepad();
-        if (pad < 0 || !GLFW.glfwGetGamepadState(pad, state)) {
+    private void readGamepad(int pad) {
+        if (!GLFW.glfwGetGamepadState(pad, state)) {
             return;
         }
         int[][] map = {

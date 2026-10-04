@@ -10,10 +10,11 @@ use jni::JNIEnv;
 use jni::objects::{JByteArray, JClass, JFloatArray, JIntArray, JString};
 use jni::sys::{jboolean, jbyteArray, jfloat, jint, jintArray, jlong, jstring};
 use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::sync::Mutex;
 use worker::{Host, Pad, Status, Triangle};
 
 /// Bumped when the Java-facing contract changes; the mod refuses a mismatch.
-pub const ABI_VERSION: jint = 1;
+pub const ABI_VERSION: jint = 2;
 
 fn guard<T>(fallback: T, f: impl FnOnce() -> T) -> T {
     catch_unwind(AssertUnwindSafe(f)).unwrap_or(fallback)
@@ -325,4 +326,37 @@ fn int_array(env: JNIEnv, values: &[jint]) -> jintArray {
         return std::ptr::null_mut();
     }
     JIntArray::into_raw(array)
+}
+
+static XINPUT: Mutex<Option<skate_host::bridge::ControllerTransport>> = Mutex::new(None);
+
+/// Reads the first connected XInput pad, Skate 3's own controller path
+/// (Windows only). Fills `out` with buttons, left trigger, right trigger,
+/// lx, ly, rx, ry and returns the pad's slot, or -1 when there is none.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_mineskate3_client_NativeSkate_pollXInput(
+    env: JNIEnv,
+    _class: JClass,
+    out: JIntArray,
+) -> jint {
+    let pad = guard(None, || {
+        let mut transport = XINPUT.lock().unwrap_or_else(|e| e.into_inner());
+        transport.get_or_insert_with(Default::default).poll().pad()
+    });
+    let Some((slot, buttons, triggers, left, right)) = pad else {
+        return -1;
+    };
+    let values = [
+        jint::from(buttons),
+        jint::from(triggers[0]),
+        jint::from(triggers[1]),
+        jint::from(left[0]),
+        jint::from(left[1]),
+        jint::from(right[0]),
+        jint::from(right[1]),
+    ];
+    if env.set_int_array_region(&out, 0, &values).is_err() {
+        return -1;
+    }
+    slot as jint
 }

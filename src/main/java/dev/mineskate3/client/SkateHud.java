@@ -23,7 +23,9 @@ final class SkateHud {
             double speed = Math.sqrt(p[NativeSkate.VELOCITY] * p[NativeSkate.VELOCITY]
                     + p[NativeSkate.VELOCITY + 1] * p[NativeSkate.VELOCITY + 1]
                     + p[NativeSkate.VELOCITY + 2] * p[NativeSkate.VELOCITY + 2]) * 3.6;
-            String controller = session.pad().controllerName != null ? session.pad().controllerName
+            PadInput pad = session.pad();
+            String controller = pad.controllerName != null ? pad.controllerName
+                    : pad.unrecognisedName != null ? "keyboard + mouse (" + pad.unrecognisedName + " not recognised)"
                     : "keyboard + mouse";
             text = String.format("Skate 3 | %s | %.0f km/h | %s", session.state(), speed, controller);
         }

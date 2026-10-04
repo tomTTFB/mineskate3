@@ -51,6 +51,20 @@ No game files are included in this mod.
 
 What each button does is Skate 3's own mapping.
 
+Controllers are picked up automatically, in this order:
+
+1. **XInput (Windows)**: Xbox controllers, and anything Steam Input presents
+   as one, read through the Skate engine's own raw XInput code.
+2. **Any controller GLFW knows**: Minecraft's GLFW plus the bundled
+   [SDL_GameControllerDB](https://github.com/mdqinc/SDL_GameControllerDB)
+   mappings cover PlayStation, Switch Pro and most generic pads, on Windows,
+   macOS and Linux.
+3. Otherwise keyboard and mouse.
+
+The HUD line shows which one is in use. If it says a controller was "not
+recognised", that pad has no mapping; on Windows, running it through Steam
+Input usually fixes that.
+
 ## How it works
 
 | Piece | Where | What |
@@ -88,6 +102,7 @@ Linux and macOS and packages all of them into one jar
 - Blocks are refreshed every two seconds while skating, so a block you place
   may take a moment to become solid for the board.
 - Armour and held items are not drawn while skating.
+- No controller vibration yet.
 
 ## Licence
 
