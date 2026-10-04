@@ -4,7 +4,10 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 
-/** A one-line status readout while skating. */
+/**
+ * A one-line status readout: while loading, while the original trick HUD is
+ * unavailable (with how to add it), or with F3 open.
+ */
 final class SkateHud {
     private SkateHud() {}
 
@@ -27,7 +30,19 @@ final class SkateHud {
             String controller = pad.controllerName != null ? pad.controllerName
                     : pad.unrecognisedName != null ? "keyboard + mouse (" + pad.unrecognisedName + " not recognised)"
                     : "keyboard + mouse";
+            int hud = session.handle() != 0 ? NativeSkate.hudStatus(session.handle()) : 0;
+            boolean debug = mc.gui.getDebugOverlay().showDebugScreen();
+            if (hud == 1 && !debug) {
+                return;
+            }
             text = String.format("Skate 3 | %s | %.0f km/h | %s", session.state(), speed, controller);
+            if (hud == 0) {
+                graphics.drawString(font, "Trick HUD not installed: Mods > MineSkate 3 > Config to add it", 6, 18,
+                        0xFFFF80, true);
+            } else if (hud < 0) {
+                graphics.drawString(font, "Trick HUD stopped: " + NativeSkate.hudError(session.handle()), 6, 18,
+                        0xFF8080, true);
+            }
         }
         graphics.drawString(font, text, 6, 6, 0xFFFFFF, true);
     }

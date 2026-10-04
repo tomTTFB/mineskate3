@@ -13,7 +13,7 @@ import java.util.Locale;
  * Implemented in native/crates/skate-mc/src/lib.rs.
  */
 public final class NativeSkate {
-    public static final int ABI_VERSION = 2;
+    public static final int ABI_VERSION = 3;
 
     public static final int STATUS_LOADING = 0;
     public static final int STATUS_READY = 1;
@@ -138,6 +138,17 @@ public final class NativeSkate {
     static native byte[] boardTexture(long handle, int index);
 
     static native int rails(long handle);
+
+    /** 1 the original trick HUD runs, 0 its data is missing, -1 it failed. */
+    static native int hudStatus(long handle);
+
+    static native String hudError(long handle);
+
+    /** HUD texture files relative to assets/private/hud, as "path|width|height". */
+    static native String[] hudTextures(long handle);
+
+    /** The HUD draw list; returns its length, or minus the length needed. */
+    static native int hudDraws(long handle, float[] out);
 
     /** Skate 3's own XInput reader (Windows): see PadInput. */
     static native int pollXInput(int[] out);

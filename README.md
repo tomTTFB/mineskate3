@@ -35,6 +35,18 @@ No game files are included in this mod.
    game files are never modified.
 4. Close the screen and press **J** again to skate.
 
+## Trick HUD
+
+While skating you get Skate 3's own trick display: trick names as you land
+them, sequence and line score, the combo multiplier, the line timer and
+clean/sketchy landings. It is the original HUD movie from your disc, run by
+the Skate engine's own player, next to the real scoring. Minecraft's
+crosshair, hotbar and health bars are hidden while you skate.
+
+If you converted your data before the HUD existed, open
+**Mods > MineSkate 3 > Config**, select your `default.xex` again and press
+**Add trick HUD**; then toggle skate mode off and on.
+
 ## Controls
 
 | Action | Controller | Keyboard + mouse |

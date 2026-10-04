@@ -10,5 +10,6 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 bevy = { version = "0.19", default-features = false, features = ["std", "multi_threaded", "bevy_log"] }
 jni = "0.21"
+serde.workspace = true
 serde_json.workspace = true
 skate-host = { path = "../skate-host" }

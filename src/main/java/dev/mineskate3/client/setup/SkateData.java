@@ -28,4 +28,9 @@ public final class SkateData {
                 && Files.isRegularFile(assets.resolve("private/stock/skater-collections.json"))
                 && Files.isRegularFile(assets.resolve("private/stock/physics-skeletons.json"));
     }
+
+    /** The original trick HUD, written by the converter's hud step. */
+    public static boolean hudReady() {
+        return Files.isRegularFile(assets().resolve("private/hud/runtime/trickdisplay.json"));
+    }
 }

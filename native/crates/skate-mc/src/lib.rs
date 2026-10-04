@@ -1,6 +1,7 @@
 //! JNI bridge between the MineSkate 3 NeoForge mod and the Skate 3 Rust engine.
 //! Java side: `dev.mineskate3.client.NativeSkate`.
 pub mod board;
+pub mod hud;
 pub mod rails;
 pub mod refpack;
 pub mod retarget;
@@ -14,7 +15,7 @@ use std::sync::Mutex;
 use worker::{Host, Pad, Status, Triangle};
 
 /// Bumped when the Java-facing contract changes; the mod refuses a mismatch.
-pub const ABI_VERSION: jint = 2;
+pub const ABI_VERSION: jint = 3;
 
 fn guard<T>(fallback: T, f: impl FnOnce() -> T) -> T {
     catch_unwind(AssertUnwindSafe(f)).unwrap_or(fallback)
@@ -359,4 +360,70 @@ pub extern "system" fn Java_dev_mineskate3_client_NativeSkate_pollXInput(
         return -1;
     }
     slot as jint
+}
+
+/// 1 the original trick HUD runs, 0 its data is missing, -1 it failed.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_mineskate3_client_NativeSkate_hudStatus(
+    _env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+) -> jint {
+    host(handle).map_or(0, |h| h.shared.lock().unwrap().hud_status)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_mineskate3_client_NativeSkate_hudError(
+    env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+) -> jstring {
+    let text = host(handle).map_or_else(String::new, |h| h.shared.lock().unwrap().hud_error.clone());
+    env.new_string(text)
+        .map(|s| s.into_raw())
+        .unwrap_or(std::ptr::null_mut())
+}
+
+/// HUD texture files, relative to assets/private/hud, as "path|width|height".
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_mineskate3_client_NativeSkate_hudTextures(
+    mut env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+) -> jni::sys::jobjectArray {
+    let textures = host(handle).map_or_else(Vec::new, |h| h.shared.lock().unwrap().hud_textures.clone());
+    let Ok(array) = env.new_object_array(textures.len() as jint, "java/lang/String", jni::objects::JObject::null()) else {
+        return std::ptr::null_mut();
+    };
+    for (i, (path, [w, h])) in textures.iter().enumerate() {
+        let Ok(text) = env.new_string(format!("{path}|{w}|{h}")) else {
+            return std::ptr::null_mut();
+        };
+        if env.set_object_array_element(&array, i as jint, text).is_err() {
+            return std::ptr::null_mut();
+        }
+    }
+    array.into_raw()
+}
+
+/// Copies the HUD draw list into `out` and returns its length in floats, or
+/// minus the length needed when `out` is too small.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_mineskate3_client_NativeSkate_hudDraws(
+    env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    out: JFloatArray,
+) -> jint {
+    let Some(host) = host(handle) else { return 0 };
+    let shared = host.shared.lock().unwrap();
+    let data = &shared.hud_draws;
+    let len = env.get_array_length(&out).unwrap_or(0).max(0) as usize;
+    if data.len() > len {
+        return -(data.len() as jint);
+    }
+    if env.set_float_array_region(&out, 0, data).is_err() {
+        return 0;
+    }
+    data.len() as jint
 }

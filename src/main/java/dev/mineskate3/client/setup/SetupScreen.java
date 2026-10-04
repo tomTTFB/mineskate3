@@ -31,6 +31,8 @@ public final class SetupScreen extends Screen {
     private volatile boolean busy;
     private volatile String status = "";
     private String typedPath = "";
+    /** Skating data is already converted; only the trick HUD is missing. */
+    private final boolean hudOnly = SkateData.ready() && !SkateData.hudReady();
 
     public SetupScreen(Screen parent) {
         super(Component.translatable("mineskate3.setup.title"));
@@ -62,7 +64,8 @@ public final class SetupScreen extends Screen {
         addRenderableWidget(path);
         browse = addRenderableWidget(Button.builder(Component.literal("Browse..."), b -> browse())
                 .bounds(x + w - 80, y, 80, 20).build());
-        convert = addRenderableWidget(Button.builder(Component.literal("Convert"), b -> startConvert())
+        convert = addRenderableWidget(Button.builder(Component.literal(hudOnly ? "Add trick HUD" : "Convert"),
+                        b -> startConvert())
                 .bounds(x, y + 26, (w - 8) / 2, 20).build());
         install = addRenderableWidget(Button.builder(Component.literal("Install numpy + Pillow"), b -> startInstall())
                 .bounds(x + (w + 8) / 2, y + 26, (w - 8) / 2, 20).build());
@@ -93,6 +96,10 @@ public final class SetupScreen extends Screen {
                 status = "Python 3.11 or newer was not found. Install it from python.org, then reopen this screen.";
             } else if (!found.hasPackages()) {
                 status = "Python " + found.version() + " found, but it needs numpy and Pillow.";
+            } else if (hudOnly) {
+                status = "Python " + found.version() + " ready. Select your default.xex again to add the trick HUD.";
+            } else if (SkateData.ready()) {
+                status = "Skate 3 data is installed. Convert again only to refresh it.";
             } else {
                 status = "Python " + found.version() + " ready. Select your default.xex.";
             }
@@ -171,12 +178,20 @@ public final class SetupScreen extends Screen {
             return;
         }
         busy = true;
-        status = "Converting Skate 3 data. The first conversion can take a few minutes...";
+        status = hudOnly ? "Adding the trick HUD..."
+                : "Converting Skate 3 data. The first conversion can take a few minutes...";
+        boolean onlyHud = hudOnly;
         Thread thread = new Thread(() -> {
-            boolean ok = ConverterRunner.convert(current, xex, this::log);
+            boolean ok = ConverterRunner.convert(current, xex, onlyHud, this::log);
             busy = false;
-            status = ok ? "Skate 3 data ready. Close this screen and press J to skate."
-                    : "Conversion failed. See the log above and logs/latest.log.";
+            if (ok && onlyHud) {
+                status = "Trick HUD added. Toggle skate mode off and on (or rejoin) to see it.";
+            } else if (ok) {
+                status = SkateData.hudReady() ? "Skate 3 data ready. Close this screen and press J to skate."
+                        : "Skate 3 data ready (without the trick HUD, see the log). Press J to skate.";
+            } else {
+                status = "Conversion failed. See the log above and logs/latest.log.";
+            }
         }, "mineskate3-convert");
         thread.setDaemon(true);
         thread.start();

@@ -159,8 +159,11 @@ public final class ConverterRunner {
         }
     }
 
-    /** Converts `xex` into SkateData.output(). Returns true on success. */
-    public static boolean convert(Python python, Path xex, Consumer<String> log) {
+    /**
+     * Converts `xex` into SkateData.output(), or with `hudOnly` adds just the
+     * trick HUD to an existing conversion. Returns true on success.
+     */
+    public static boolean convert(Python python, Path xex, boolean hudOnly, Consumer<String> log) {
         try {
             try {
                 NativeSkate.load(SkateData.root().resolve("natives"));
@@ -173,9 +176,12 @@ public final class ConverterRunner {
             command.addAll(List.of("-u", converter.resolve("mineskate_convert.py").toString(),
                     "--xex", xex.toAbsolutePath().toString(),
                     "--out", SkateData.output().toAbsolutePath().toString()));
+            if (hudOnly) {
+                command.add("--hud-only");
+            }
             Files.createDirectories(SkateData.root());
             int exit = stream(command, converter, log);
-            return exit == 0 && SkateData.ready();
+            return exit == 0 && SkateData.ready() && (!hudOnly || SkateData.hudReady());
         } catch (IOException e) {
             log.accept(e.getMessage());
             return false;

@@ -1,7 +1,7 @@
 //! One Skate session per world, on its own thread, as the mashup runs it.
 //! Leaving skate mode only pauses the session: decoded animation banks, graphs
 //! and the board stay resident so the next toggle is instant.
-use crate::{board::Board, rails, retarget};
+use crate::{board::Board, hud::Hud, rails, retarget};
 use bevy::math::{Mat4, Vec3};
 use skate_host::bridge::{InputFrame, PreparedCollision, Pose, Session};
 use std::path::PathBuf;
@@ -57,6 +57,13 @@ pub struct Shared {
     pub board: Option<Arc<Board>>,
     pub board_vertices: Vec<f32>,
     pub rails: usize,
+    /// 1 when the original trick HUD runs, 0 when its data is missing,
+    /// -1 when it stopped on an error (see `hud_error`).
+    pub hud_status: i32,
+    pub hud_error: String,
+    pub hud_textures: Vec<(String, [u32; 2])>,
+    /// The HUD's current draw list (see `Hud::draws`).
+    pub hud_draws: Vec<f32>,
 }
 
 pub struct Host {
@@ -85,6 +92,10 @@ impl Host {
             board: None,
             board_vertices: Vec::new(),
             rails: 0,
+            hud_status: 0,
+            hud_error: String::new(),
+            hud_textures: Vec::new(),
+            hud_draws: Vec::new(),
         }));
         let (send, receive) = mpsc::channel();
         let thread_shared = Arc::clone(&shared);
@@ -137,6 +148,30 @@ fn run(root: PathBuf, receive: mpsc::Receiver<Job>, shared: &Mutex<Shared>) -> R
     let started = std::time::Instant::now();
     let mut session = Session::new(&root, vec![PLACEHOLDER], vec![], [0.0; 3], 0.0)?;
     let board = Board::load(&root).map_err(|e| format!("Skateboard model: {e}"))?;
+    // The trick HUD is optional: older conversions do not include it.
+    let mut hud = match Hud::load(&root, &session.scoring()) {
+        Ok(hud) => {
+            let mut s = shared.lock().unwrap();
+            s.hud_status = 1;
+            s.hud_textures = hud.textures.clone();
+            Some(hud)
+        }
+        Err(e) => {
+            eprintln!("[mineskate3] trick HUD unavailable: {e}");
+            let mut s = shared.lock().unwrap();
+            s.hud_status = 0;
+            s.hud_error = e;
+            None
+        }
+    };
+    let hud_failed = |e: String, hud: &mut Option<Hud>| {
+        eprintln!("[mineskate3] trick HUD stopped: {e}");
+        let mut s = shared.lock().unwrap();
+        s.hud_status = -1;
+        s.hud_error = e;
+        s.hud_draws.clear();
+        *hud = None;
+    };
     eprintln!(
         "[mineskate3] Skate session loaded in {}ms",
         started.elapsed().as_millis()
@@ -215,6 +250,22 @@ fn run(root: PathBuf, receive: mpsc::Receiver<Job>, shared: &Mutex<Shared>) -> R
                 accumulated = 0.0;
                 session.set_aspect_ratio(aspect);
                 let pose = session.activate(spawn, heading)?;
+                // Data added since the session loaded (the setup's "Add
+                // trick HUD") is picked up on the next toggle.
+                if hud.is_none() && shared.lock().unwrap().hud_status == 0 {
+                    if let Ok(loaded) = Hud::load(&root, &session.scoring()) {
+                        let mut s = shared.lock().unwrap();
+                        s.hud_status = 1;
+                        s.hud_error.clear();
+                        s.hud_textures = loaded.textures.clone();
+                        hud = Some(loaded);
+                    }
+                }
+                if let Some(h) = hud.as_mut()
+                    && let Err(e) = h.reset(&session.scoring())
+                {
+                    hud_failed(e, &mut hud);
+                }
                 active = true;
                 publish(shared, &pose, true)?;
             }
@@ -246,10 +297,23 @@ fn run(root: PathBuf, receive: mpsc::Receiver<Job>, shared: &Mutex<Shared>) -> R
                 while accumulated >= session.period() {
                     accumulated -= session.period();
                     session.advance()?;
+                    // The movie steps once per simulation tick, as in skate-game.
+                    if let Some(h) = hud.as_mut()
+                        && let Err(e) = h.update(&session.scoring())
+                    {
+                        hud_failed(e, &mut hud);
+                    }
                     advanced = true;
                 }
                 if advanced {
                     publish(shared, &session.pose(), false)?;
+                    if let Some(h) = hud.as_ref() {
+                        let mut draws = Vec::new();
+                        match h.draws(&mut draws) {
+                            Ok(()) => shared.lock().unwrap().hud_draws = draws,
+                            Err(e) => hud_failed(e, &mut hud),
+                        }
+                    }
                 }
             }
         }

@@ -20,6 +20,24 @@ pub struct Session {
     camera: CameraRuntime,
     markers: crate::session_marker::Runtime,
 }
+/// Skate 3's ScoreModule publication, as the original trick HUD reads it.
+/// `new_trick`, `modified_trick` and `close_tricks` hold for the last tick only.
+#[derive(Clone, Debug, Default)]
+pub struct ScoringHud {
+    pub sequence_score: i32,
+    pub line_score: i32,
+    pub sequence_timer: i32,
+    pub line_time: f32,
+    pub line_capacity: f32,
+    pub multiplier: f32,
+    pub clean: bool,
+    pub sketchy: bool,
+    pub stance: [bool; 4],
+    pub trick_name: String,
+    pub new_trick: bool,
+    pub modified_trick: bool,
+    pub close_tricks: bool,
+}
 pub struct Pose {
     pub root: Mat4,
     pub bones: Vec<Mat4>,
@@ -157,6 +175,9 @@ impl Session {
             },
         );
         self.advance_published()
+    }
+    pub fn scoring(&self) -> ScoringHud {
+        self.skater.scoring.hud()
     }
     pub fn pose(&self) -> Pose {
         let v = self.physics.board.bodies()[skate_core::physics::board::BodyId::Deck.index()]

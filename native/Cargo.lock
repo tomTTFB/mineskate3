@@ -2509,6 +2509,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "jni 0.21.1",
+ "serde",
  "serde_json",
  "skate-host",
 ]

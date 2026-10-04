@@ -8,6 +8,8 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.AbstractClientPlayer;
 import net.minecraft.client.player.Input;
 import net.minecraft.client.player.LocalPlayer;
+import net.minecraft.resources.ResourceLocation;
+import java.util.Set;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.common.Mod;
@@ -18,10 +20,15 @@ import net.neoforged.neoforge.client.event.MovementInputUpdateEvent;
 import net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent;
 import net.neoforged.neoforge.client.event.RenderFrameEvent;
 import net.neoforged.neoforge.client.event.RenderGuiEvent;
+import net.neoforged.neoforge.client.event.RenderGuiLayerEvent;
 import net.neoforged.neoforge.client.event.RenderHandEvent;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 import net.neoforged.neoforge.client.event.RenderPlayerEvent;
 import net.neoforged.neoforge.client.event.ViewportEvent;
+import net.neoforged.neoforge.client.gui.VanillaGuiLayers;
+import net.neoforged.neoforge.client.gui.IConfigScreenFactory;
+import net.neoforged.fml.ModContainer;
+import dev.mineskate3.client.setup.SetupScreen;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.tick.PlayerTickEvent;
 import org.lwjgl.glfw.GLFW;
@@ -32,10 +39,21 @@ public final class MineSkate3Client {
     public static final KeyMapping TOGGLE = new KeyMapping("key.mineskate3.toggle",
             InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_J, "key.categories.mineskate3");
 
+    /** Survival HUD pieces that make no sense on a board; Skate 3 shows only its own. */
+    private static final Set<ResourceLocation> HIDDEN_WHILE_SKATING = Set.of(
+            VanillaGuiLayers.CROSSHAIR, VanillaGuiLayers.HOTBAR, VanillaGuiLayers.JUMP_METER,
+            VanillaGuiLayers.EXPERIENCE_BAR, VanillaGuiLayers.EXPERIENCE_LEVEL, VanillaGuiLayers.PLAYER_HEALTH,
+            VanillaGuiLayers.ARMOR_LEVEL, VanillaGuiLayers.FOOD_LEVEL, VanillaGuiLayers.AIR_LEVEL,
+            VanillaGuiLayers.SELECTED_ITEM_NAME, VanillaGuiLayers.VEHICLE_HEALTH);
+
     private long lastFrame = System.nanoTime();
 
-    public MineSkate3Client(IEventBus modBus) {
+    public MineSkate3Client(IEventBus modBus, ModContainer container) {
         modBus.addListener(this::onRegisterKeys);
+        modBus.addListener(TrickHud::registerShaders);
+        // Mods > MineSkate 3 > Config opens the Skate 3 setup (convert, add the trick HUD).
+        container.registerExtensionPoint(IConfigScreenFactory.class,
+                (IConfigScreenFactory) (mod, parent) -> new SetupScreen(parent));
         SkateNetwork.setClientHandler(new SkateNetwork.ClientHandler() {
             @Override
             public void remoteState(SkateNetwork.RemoteState state) {
@@ -58,6 +76,7 @@ public final class MineSkate3Client {
         NeoForge.EVENT_BUS.addListener(this::onRenderHand);
         NeoForge.EVENT_BUS.addListener(this::onComputeFov);
         NeoForge.EVENT_BUS.addListener(this::onRenderGui);
+        NeoForge.EVENT_BUS.addListener(this::onRenderGuiLayer);
         NeoForge.EVENT_BUS.addListener(this::onLogout);
     }
 
@@ -160,7 +179,16 @@ public final class MineSkate3Client {
     }
 
     private void onRenderGui(RenderGuiEvent.Post event) {
+        if (!Minecraft.getInstance().options.hideGui) {
+            TrickHud.render(event.getGuiGraphics());
+        }
         SkateHud.render(event.getGuiGraphics());
+    }
+
+    private void onRenderGuiLayer(RenderGuiLayerEvent.Pre event) {
+        if (SkateSession.get().active() && HIDDEN_WHILE_SKATING.contains(event.getName())) {
+            event.setCanceled(true);
+        }
     }
 
     private void onLogout(ClientPlayerNetworkEvent.LoggingOut event) {

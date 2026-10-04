@@ -113,6 +113,24 @@ impl Runtime {
         })
     }
 
+    /// The HUD inputs skate-game's `hud_input` builds, without its APT types.
+    pub(crate) fn hud(&self) -> crate::physics::bridge::ScoringHud {
+        crate::physics::bridge::ScoringHud {
+            sequence_score: self.sequence_score as i32,
+            line_score: self.session.holder.snapshot.line as i32,
+            sequence_timer: (self.session.line.points / self.data.line_drain) as i32,
+            line_time: self.session.line.points / self.data.line_drain,
+            line_capacity: self.data.line_capacity,
+            multiplier: self.session.combo.multiplier,
+            clean: self.clean,
+            sketchy: self.sketchy,
+            stance: self.stance,
+            trick_name: self.trick_name.clone(),
+            new_trick: self.new_trick,
+            modified_trick: self.modified_trick,
+            close_tricks: self.close_tricks,
+        }
+    }
     fn penalty(&self, id: usize) -> f32 {
         let Some(d) = self.data.by_id(id) else {
             return 1.;
