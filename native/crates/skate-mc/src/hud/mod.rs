@@ -15,6 +15,62 @@ use skate_host::bridge::ScoringHud;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+/// A trick label as the HUD shows it: each `ID_` component through the
+/// movie's language table, unknown ids made readable. From skate-game's
+/// scoring_hud.rs (upstream 84142e7).
+pub fn localize_trick(label: &str, assets: Option<&apt_text::TextAssets>) -> String {
+    if let Some(literal) = label.strip_prefix('#') {
+        return literal.to_owned();
+    }
+    label
+        .split_whitespace()
+        .map(|part| {
+            let text = assets.map(|a| a.localize(part)).unwrap_or_else(|| part.to_owned());
+            if text.starts_with("ID_") { humanize_trick_id(&text) } else { text }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn humanize_trick_id(id: &str) -> String {
+    let rest = id
+        .strip_prefix("ID_TRICK_")
+        .or_else(|| id.strip_prefix("ID_"))
+        .unwrap_or(id);
+    rest.split('_')
+        .filter(|word| !word.is_empty())
+        .map(|word| {
+            let lower = word.to_ascii_lowercase();
+            let mut chars = lower.chars();
+            match chars.next() {
+                None => String::new(),
+                Some(first) => first.to_ascii_uppercase().to_string() + chars.as_str(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn composed_names_localize_every_component() {
+        let mut assets = apt_text::TextAssets::default();
+        assets.language.insert("ID_TRICK_KICKFLIP".into(), "Kickflip".into());
+        assets
+            .language
+            .insert("ID_TRICK_AUTHENTIC_FS_HALFCAB".into(), "FS Half-Cab".into());
+        assert_eq!(localize_trick("ID_TRICK_KICKFLIP 360", Some(&assets)), "Kickflip 360");
+        assert_eq!(
+            localize_trick("ID_TRICK_KICKFLIP ID_TRICK_AUTHENTIC_FS_HALFCAB", Some(&assets)),
+            "Kickflip FS Half-Cab"
+        );
+        assert_eq!(localize_trick("ID_TRICK_POP_SHOVE_IT", None), "Pop Shove It");
+    }
+}
+
 /// Where the converter's `hud` step writes the trick display.
 pub fn root(assets: &Path) -> PathBuf {
     assets.join("private").join("hud")
@@ -34,10 +90,10 @@ fn input(s: &ScoringHud) -> hud_runtime::Input {
         trick_name: s.trick_name.clone(),
         trick_metrics: [
             Value::Text(s.trick_name.clone()),
-            Value::Bool(false),
-            Value::Bool(false),
-            Value::Bool(false),
-            Value::Bool(false),
+            Value::Bool(s.stance[0]),
+            Value::Bool(s.stance[1]),
+            Value::Bool(s.was_bailing),
+            Value::Bool(s.new_trick),
         ],
         context_tricks: Vec::new(),
     }

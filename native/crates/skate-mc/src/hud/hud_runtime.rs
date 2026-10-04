@@ -116,8 +116,20 @@ impl Host for Bindings {
                 ],
             ),
             ("Tricks", "GetCurrentTrickStance") => array(vm, self.input.stance.map(Value::Bool)),
-            ("Tricks", "GetCurrentTrickName") => Ok(Value::Text(self.input.trick_name.clone())),
-            ("Tricks", "GetCurrentTrickMetrics") => array(vm, self.input.trick_metrics.clone()),
+            // Upstream 84142e7: the movie shows '#'-prefixed text verbatim, so
+            // names go in already localized against its language table.
+            ("Tricks", "GetCurrentTrickName") => Ok(Value::Text(format!(
+                "#{}",
+                super::localize_trick(&self.input.trick_name, Some(&self.movie.text_assets))
+            ))),
+            ("Tricks", "GetCurrentTrickMetrics") => {
+                let mut metrics = self.input.trick_metrics.clone();
+                metrics[0] = Value::Text(format!(
+                    "#{}",
+                    super::localize_trick(&self.input.trick_name, Some(&self.movie.text_assets))
+                ));
+                array(vm, metrics)
+            }
             ("Tricks", "TrickDisplay_GetAllTrickData") => {
                 array(vm, self.input.context_tricks.clone())
             }

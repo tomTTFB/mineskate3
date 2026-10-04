@@ -34,6 +34,7 @@ pub struct ScoringHud {
     pub sketchy: bool,
     pub stance: [bool; 4],
     pub trick_name: String,
+    pub was_bailing: bool,
     pub new_trick: bool,
     pub modified_trick: bool,
     pub close_tricks: bool,
