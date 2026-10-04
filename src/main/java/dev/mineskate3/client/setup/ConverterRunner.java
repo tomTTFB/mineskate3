@@ -24,7 +24,6 @@ import java.util.zip.ZipInputStream;
  * physics settings and the skater model.
  */
 public final class ConverterRunner {
-    public static final String CONVERTER_VERSION = "1";
 
     /** A usable Python: the command to start it and its version. */
     public record Python(List<String> command, String version, boolean hasPackages) {}
@@ -97,18 +96,32 @@ public final class ConverterRunner {
         return stream(command, null, log) == 0;
     }
 
-    /** Unpacks the bundled converter scripts once per converter version. */
+    /**
+     * Unpacks the bundled converter scripts. The folder is named after the
+     * archive's contents, so a mod update never runs a stale converter.
+     */
     static Path unpack() throws IOException {
-        Path target = SkateData.root().resolve("converter").resolve(CONVERTER_VERSION);
-        Path marker = target.resolve(".complete");
-        if (Files.isRegularFile(marker)) {
-            return target;
-        }
+        byte[] archive;
         try (InputStream raw = ConverterRunner.class.getResourceAsStream("/mineskate3/converter.zip")) {
             if (raw == null) {
                 throw new IOException("This build does not include the Skate 3 converter");
             }
-            try (ZipInputStream zip = new ZipInputStream(raw)) {
+            archive = raw.readAllBytes();
+        }
+        String version;
+        try {
+            byte[] digest = java.security.MessageDigest.getInstance("SHA-256").digest(archive);
+            version = java.util.HexFormat.of().formatHex(digest, 0, 8);
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IOException(e);
+        }
+        Path target = SkateData.root().resolve("converter").resolve(version);
+        Path marker = target.resolve(".complete");
+        if (Files.isRegularFile(marker)) {
+            return target;
+        }
+        {
+            try (ZipInputStream zip = new ZipInputStream(new java.io.ByteArrayInputStream(archive))) {
                 ZipEntry entry;
                 while ((entry = zip.getNextEntry()) != null) {
                     Path out = target.resolve(entry.getName()).normalize();
@@ -124,7 +137,7 @@ public final class ConverterRunner {
                 }
             }
         }
-        Files.writeString(marker, CONVERTER_VERSION);
+        Files.writeString(marker, version);
         return target;
     }
 

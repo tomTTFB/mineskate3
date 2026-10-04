@@ -62,6 +62,9 @@ var zipConverter = tasks.register("zipConverter", Zip) {
         exclude '**/*.pyc'
     }
     archiveFileName = 'converter.zip'
+    // Same contents, same bytes: the client names its unpacked copy by hash.
+    preserveFileTimestamps = false
+    reproducibleFileOrder = true
     destinationDirectory = layout.buildDirectory.dir('generated/converter/mineskate3')
 }
 
