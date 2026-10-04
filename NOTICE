@@ -1,0 +1,32 @@
+MineSkate 3
+Copyright (c) 2026 MineSkate 3 contributors
+
+MineSkate 3 is licensed under the GNU General Public License version 3 only
+(GPL-3.0-only); see LICENSE.
+
+--------------------------------------------------------------------------------
+Third-party code in this repository
+--------------------------------------------------------------------------------
+
+Skate 3 Rust Engine
+  https://github.com/SK8-ENGINE/skate-3-rust-engine
+  Copyright (c) 2026 dumbad and the Skate 3 Rust Engine contributors.
+  GPL-3.0-only. The code here is from revision cb79689, the one the mashup's
+  headless host was built against; upstream added its GPL-3.0 licence file in
+  a later commit (8280fc4), and that licence is what this project relies on.
+  Used in native/crates/skate-core, skate-data, skate-net, skate-host and in
+  converter/tools. Third-party code inside it keeps its own licence files
+  (for example converter/tools/vendor/*/LICENSE*).
+
+2010 Rust Rewrite Mashup (a fork of IW4L)
+  https://github.com/chasmlol/2010-rust-rewrite-mashup
+  IW4L Copyright 2026 vladtrc; mashup by chasmlol.
+  Apache License 2.0; see LICENSE-APACHE-2.0. The headless skate host
+  (native/crates/skate-host, adapted from the engine above), the grind rail
+  finder (native/crates/skate-mc/src/rails.rs), the board GLB reader
+  (native/crates/skate-mc/src/board.rs) and the converter entry point
+  (converter/mineskate_convert.py) are adapted from it.
+
+No Skate 3, Minecraft or other game content is included. Skate 3 belongs to
+Electronic Arts; Minecraft to Mojang Studios. This project is not affiliated
+with either.

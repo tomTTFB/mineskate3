@@ -1,0 +1,33 @@
+modLoader="javafml"
+loaderVersion="${loader_version_range}"
+license="${mod_license}"
+issueTrackerURL="https://github.com/tomTTFB/mineskate3/issues"
+
+[[mods]]
+modId="${mod_id}"
+version="${mod_version}"
+displayName="${mod_name}"
+authors="MineSkate 3 contributors"
+credits="Skate 3 Rust Engine by dumbad, Chasm and contributors; 2010 Rust Rewrite Mashup by chasmlol"
+description='''
+Press J to drop onto a board driven by Skate 3's own physics, tricks and grinds,
+using the SK8-ENGINE Skate 3 Rust engine. Needs your own extracted Skate 3
+(Xbox 360) default.xex. No game files are included.
+'''
+
+[[mixins]]
+config="${mod_id}.mixins.json"
+
+[[dependencies.${mod_id}]]
+    modId="neoforge"
+    type="required"
+    versionRange="[${neo_version},)"
+    ordering="NONE"
+    side="BOTH"
+
+[[dependencies.${mod_id}]]
+    modId="minecraft"
+    type="required"
+    versionRange="${minecraft_version_range}"
+    ordering="NONE"
+    side="BOTH"

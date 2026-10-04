@@ -1,0 +1,83 @@
+name: Build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  native:
+    name: Native (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows-x86_64
+            target: x86_64-pc-windows-msvc
+            lib: skate_mc.dll
+          - os: ubuntu-22.04
+            platform: linux-x86_64
+            target: x86_64-unknown-linux-gnu
+            lib: libskate_mc.so
+          - os: macos-14
+            platform: macos-aarch64
+            target: aarch64-apple-darwin
+            lib: libskate_mc.dylib
+          - os: macos-14
+            platform: macos-x86_64
+            target: x86_64-apple-darwin
+            lib: libskate_mc.dylib
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
+          key: ${{ matrix.target }}
+      - name: Test
+        if: matrix.platform != 'macos-x86_64'
+        working-directory: native
+        run: cargo test --release -p skate-mc
+      - name: Build
+        working-directory: native
+        run: cargo build --profile dist -p skate-mc --target ${{ matrix.target }}
+      - name: Stage
+        shell: bash
+        run: |
+          mkdir -p native-libs/${{ matrix.platform }}
+          cp native/target/${{ matrix.target }}/dist/${{ matrix.lib }} native-libs/${{ matrix.platform }}/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ matrix.platform }}
+          path: native-libs
+
+  mod:
+    name: Mod jar
+    needs: native
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: native-*
+          path: native-libs
+          merge-multiple: true
+      - run: find native-libs -type f
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build
+        run: ./gradlew build --stacktrace
+      - name: Check jar contents
+        run: |
+          unzip -l build/libs/mineskate3-*.jar | grep -E "natives/|converter.zip|mods.toml|mixins.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mineskate3-jar
+          path: build/libs/*.jar

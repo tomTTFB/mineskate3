@@ -1,0 +1,91 @@
+plugins {
+    id 'java-library'
+    id 'net.neoforged.moddev' version '2.0.148'
+}
+
+version = mod_version
+group = mod_group_id
+
+base {
+    archivesName = mod_id
+}
+
+java.toolchain.languageVersion = JavaLanguageVersion.of(21)
+
+neoForge {
+    version = project.neo_version
+
+    runs {
+        client {
+            client()
+        }
+        server {
+            server()
+            programArgument '--nogui'
+        }
+        configureEach {
+            logLevel = org.slf4j.event.Level.INFO
+        }
+    }
+
+    mods {
+        "${mod_id}" {
+            sourceSet(sourceSets.main)
+        }
+    }
+}
+
+var generateModMetadata = tasks.register("generateModMetadata", ProcessResources) {
+    var replaceProperties = [
+            minecraft_version      : minecraft_version,
+            minecraft_version_range: minecraft_version_range,
+            neo_version            : neo_version,
+            loader_version_range   : loader_version_range,
+            mod_id                 : mod_id,
+            mod_name               : mod_name,
+            mod_license            : mod_license,
+            mod_version            : mod_version,
+    ]
+    inputs.properties replaceProperties
+    expand replaceProperties
+    from "src/main/templates"
+    into "build/generated/sources/modMetadata"
+}
+sourceSets.main.resources.srcDir generateModMetadata
+neoForge.ideSyncTask generateModMetadata
+
+// The Skate 3 converter (Python, run on the player's own default.xex) ships
+// inside the jar as one archive and is unpacked on first use.
+var zipConverter = tasks.register("zipConverter", Zip) {
+    from("converter") {
+        exclude '**/__pycache__/**'
+        exclude '**/*.pyc'
+    }
+    archiveFileName = 'converter.zip'
+    destinationDirectory = layout.buildDirectory.dir('generated/converter/mineskate3')
+}
+
+// Native libraries: CI drops one per platform into native-libs/<platform>/.
+// A local `cargo build --release` in native/ is picked up for the host too.
+var collectNatives = tasks.register("collectNatives", Sync) {
+    into layout.buildDirectory.dir('generated/natives/natives')
+    from('native-libs')
+    def os = org.gradle.internal.os.OperatingSystem.current()
+    def arch = System.getProperty('os.arch') in ['aarch64', 'arm64'] ? 'aarch64' : 'x86_64'
+    def platform = os.isWindows() ? "windows-${arch}" : os.isMacOsX() ? "macos-${arch}" : "linux-${arch}"
+    def local = file("native/target/release/${os.getSharedLibraryName('skate_mc')}")
+    if (local.exists() && !file("native-libs/${platform}").exists()) {
+        from(local) { into platform }
+    }
+}
+
+sourceSets.main.resources.srcDir(zipConverter.map { layout.buildDirectory.dir('generated/converter').get() })
+sourceSets.main.resources.srcDir(collectNatives.map { layout.buildDirectory.dir('generated/natives').get() })
+
+tasks.named('processResources') {
+    dependsOn zipConverter, collectNatives
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
