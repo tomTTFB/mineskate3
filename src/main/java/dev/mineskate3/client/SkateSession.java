@@ -177,7 +177,7 @@ public final class SkateSession {
         active = true;
         posePublished = false;
         poseGeneration = -1;
-        PacketDistributor.sendToServer(new SkateNetwork.State(true));
+        send(new SkateNetwork.State(true));
         message("Skate 3 mode on");
     }
 
@@ -192,11 +192,16 @@ public final class SkateSession {
         posePublished = false;
         level = null;
         if (was) {
-            Minecraft mc = Minecraft.getInstance();
-            if (mc.getConnection() != null) {
-                PacketDistributor.sendToServer(new SkateNetwork.State(false));
-            }
+            send(new SkateNetwork.State(false));
             message(reason.isEmpty() ? "Skate 3 mode off" : reason);
+        }
+    }
+
+    /** Only servers with this mod understand skate packets. */
+    private static void send(net.minecraft.network.protocol.common.custom.CustomPacketPayload payload) {
+        var connection = Minecraft.getInstance().getConnection();
+        if (connection != null && connection.hasChannel(payload)) {
+            PacketDistributor.sendToServer(payload);
         }
     }
 
@@ -259,7 +264,7 @@ public final class SkateSession {
             sendCollision(here);
         }
         if (posePublished) {
-            PacketDistributor.sendToServer(new SkateNetwork.Pose(SkaterRenderer.networkPose(pose)));
+            send(new SkateNetwork.Pose(SkaterRenderer.networkPose(pose)));
         }
     }
 
