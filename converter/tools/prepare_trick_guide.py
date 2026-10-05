@@ -9,7 +9,8 @@ Writes, under <assets>/private/trickguide:
   category reference), with VLT inheritance resolved;
 - menu.json: the menu tree built from them (trick_guide_layout.py), and the
   runtime movie flattened into one character table;
-- clips/*.abin: the guide's demo animations from scene.big.
+- clips/*.abin: the guide's demo animations from scene.big;
+- park/: the demo set (DIST_TrickGuide), see trick_guide_park.py.
 
 and trickguide-actions.txt beside it: a readable listing of the movie's
 bytecode, used to implement the game functions it calls.
@@ -34,6 +35,7 @@ from tools.owned_game.big import BigArchive
 from tools.asset_pipeline.vlt import hash64
 from prepare_hud import font_mapping
 import trick_guide_layout
+import trick_guide_park
 
 MOVIE = 'data/fe/source/screens/tricks/trickguide'
 PREFIXES = (MOVIE, 'data/fe/source/controls/', 'data/fe/source/helper/')
@@ -323,9 +325,14 @@ def prepare(game: Path, assets: Path, work: Path, collections: Path):
     trick_guide_layout.upgrade(target)
     clip_names = clips(game, target / 'clips')
     park_sources(game, target / 'park' / 'source')
+    try:
+        park_meshes, _ = trick_guide_park.convert(target)
+    except Exception as e:  # The menu and demos still work on a plain backdrop.
+        park_meshes = 0
+        print(f'WARNING: trick guide set not converted: {e}', flush=True)
 
     print(f'Trick guide: {len(names)} movie(s), {len(data["records"])} trick records, '
-          f'{len(clip_names)} demo clips: {target}', flush=True)
+          f'{len(clip_names)} demo clips, {park_meshes} set meshes: {target}', flush=True)
     for lib in libraries.values():
         if lib['unresolved_shapes']:
             print(f"WARNING: {lib['bundle']}: unresolved shapes {lib['unresolved_shapes'][:10]}", flush=True)

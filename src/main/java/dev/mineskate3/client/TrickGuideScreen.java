@@ -13,9 +13,10 @@ import net.minecraft.resources.ResourceLocation;
 import org.lwjgl.glfw.GLFW;
 
 /**
- * Skate 3's Trick Guide: the original menu movie, run by the native engine
- * and drawn over the world. Up/down browse, select opens a category, back
- * returns and closes from the top level with the movie's own outro.
+ * Skate 3's Trick Guide: the original menu movie, run by the native engine,
+ * over the highlighted trick's demo in the original set (DemoScene). Up/down
+ * browse, select opens a category, back returns and closes from the top
+ * level with the movie's own outro.
  */
 public final class TrickGuideScreen extends Screen {
     private static final double FRAME_SECONDS = 1.0 / 30.0;
@@ -33,6 +34,7 @@ public final class TrickGuideScreen extends Screen {
 
     private long handle;
     private float[] draws = new float[1 << 16];
+    private final DemoScene demo = new DemoScene();
     private final PadInput pad = new PadInput();
     private int lastButtons;
     private int heldDirection = -1;
@@ -74,6 +76,7 @@ public final class TrickGuideScreen extends Screen {
                 return;
             }
             NativeSkate.guideUpdate(handle);
+            DemoScene.loadPark(folder());
             mc.setScreen(new TrickGuideScreen(handle));
         } catch (Exception | UnsatisfiedLinkError e) {
             MineSkate3.LOGGER.error("Trick Guide failed to open", e);
@@ -115,7 +118,7 @@ public final class TrickGuideScreen extends Screen {
 
     @Override
     public void renderBackground(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        // The world stays visible behind the panel, as the demo plays there.
+        // DemoScene covers the screen.
     }
 
     private void navigate(int nav) {
@@ -210,6 +213,9 @@ public final class TrickGuideScreen extends Screen {
         if (error == null && NativeSkate.guideClosed(handle)) {
             onClose();
             return;
+        }
+        if (error == null) {
+            demo.render(graphics, handle, dt);
         }
         int length = NativeSkate.guideDraws(handle, draws);
         if (length < 0) {

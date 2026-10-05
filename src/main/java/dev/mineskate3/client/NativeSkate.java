@@ -13,7 +13,7 @@ import java.util.Locale;
  * Implemented in native/crates/skate-mc/src/lib.rs.
  */
 public final class NativeSkate {
-    public static final int ABI_VERSION = 5;
+    public static final int ABI_VERSION = 6;
 
     public static final int STATUS_LOADING = 0;
     public static final int STATUS_READY = 1;
@@ -197,4 +197,11 @@ public final class NativeSkate {
 
     /** Like hudDraws, for the guide's last frame. */
     static native int guideDraws(long guide, float[] out);
+
+    /**
+     * Advances the highlighted entry's demo by dt seconds and writes it (see
+     * DemoScene): the float count, 0 without a demo, or minus the length
+     * needed when out is too small.
+     */
+    static native int guideDemo(long guide, float dt, float[] out);
 }

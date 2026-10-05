@@ -206,6 +206,23 @@ public final class SkaterRenderer {
         buffers.endBatch();
     }
 
+    /**
+     * A Trick Guide demo skater: the player model's parts and the skinned
+     * board (or a box fitted to it), in the space the caller's matrices set up.
+     */
+    static void renderDemo(Matrix4f[] parts, Matrix4f boardBox, float[] bones, PoseStack poseStack,
+            MultiBufferSource.BufferSource buffers, int light) {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player != null) {
+            renderParts(mc.player, parts, poseStack, buffers, light, 0, 0, 0);
+        }
+        if (bones == null || !SkinnedMeshes.render(NativeSkate.MESH_BOARD, bones, poseStack, buffers, light, 0, 0, 0)) {
+            renderBox(boardBox, poseStack, buffers.getBuffer(RenderType.entityCutoutNoCull(REMOTE_BOARD)), light,
+                    0, 0, 0);
+        }
+        buffers.endBatch();
+    }
+
     @SuppressWarnings("unchecked")
     private static PlayerModel<AbstractClientPlayer> modelFor(AbstractClientPlayer player) {
         EntityRenderer<?> renderer = Minecraft.getInstance().getEntityRenderDispatcher().getRenderer(player);

@@ -1,5 +1,6 @@
 //! JNI bridge between the MineSkate 3 NeoForge mod and the Skate 3 Rust engine.
 //! Java side: `dev.mineskate3.client.NativeSkate`.
+pub mod demo;
 pub mod guide;
 pub mod hud;
 pub mod mesh;
@@ -16,7 +17,7 @@ use std::sync::Mutex;
 use worker::{Host, Pad, Status, Triangle};
 
 /// Bumped when the Java-facing contract changes; the mod refuses a mismatch.
-pub const ABI_VERSION: jint = 5;
+pub const ABI_VERSION: jint = 6;
 
 pub(crate) fn guard<T>(fallback: T, f: impl FnOnce() -> T) -> T {
     catch_unwind(AssertUnwindSafe(f)).unwrap_or(fallback)
@@ -259,7 +260,7 @@ pub extern "system" fn Java_dev_mineskate3_client_NativeSkate_meshLoad(
     })
 }
 
-fn loaded_meshes() -> Option<std::sync::Arc<mesh::Meshes>> {
+pub(crate) fn loaded_meshes() -> Option<std::sync::Arc<mesh::Meshes>> {
     MESH_ROOT
         .lock()
         .ok()
