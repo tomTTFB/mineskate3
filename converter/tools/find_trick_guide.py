@@ -1,63 +1,85 @@
-"""Look at Skate 3's Trick Guide in the user's extracted game, read only.
+"""Look at Skate 3's Trick Guide data in the user's extracted game, read only.
 
-Earlier passes located the guide's menu movie (tricks/trickguide), its
-strings (ID_TRICK_*), demo clips (data/scene/trickguide/*.abin) and demo set
-(DIST_TrickGuide*.rx2). The menu asks a native FETrickTutorial object for its
-items, so this pass looks for that data and test-parses demo clips:
+Earlier passes found the guide's menu movie, strings, 312 demo clips and its
+demo set, and that skatercollections.bin holds records linking each trick's
+name and description labels to its clip (trickguide_hardflip_01, ...). This
+pass converts that database the same way the converter does and prints:
 
-- every file in the smaller archives (db, miscload, fedata) and default.xex
-  that mentions a demo clip name or a trick guide string label,
-- a test parse of a few demo clips, now through the chunked-capable reader,
-- whether the skeleton the clips are authored against matches across clips.
+- which collection classes reference trick guide clips, and how many rows,
+- three such rows in full, with every field,
+- every such row on one line: key, parent and its text fields,
+- the parent chain of those rows (likely the guide's categories),
+- rows of classes named after the guide, trickbook cameras or input slots.
 
-Nothing is copied or converted. The report is printed and also written to
-trick-guide-report.txt in the current folder.
+Nothing is copied or converted to the install. The report is printed and also
+written to trick-guide-report.txt in the current folder.
 
     python converter/tools/find_trick_guide.py --game "path/to/Skate 3"
 
 --game defaults to the current folder.
 """
 import argparse
-import re
 import sys
+import tempfile
+from collections import Counter
 from pathlib import Path
 
-# The archive reader is imported as tools.owned_game, as the converter does.
+# Imported as tools.*, as the converter does.
 HERE = Path(__file__).resolve().parent
 sys.path[:0] = [str(HERE), str(HERE.parent)]
 try:
     from tools.owned_game.big import BigArchive
-    from vendor.skate3_ui.project import find_big_directory
-    from vendor.skate3_anim.abin_importer import AbinFile
+    from tools.asset_pipeline.vlt import convert as convert_vlt
 except ModuleNotFoundError:
     sys.exit('Keep this script in the mod\'s converter/tools folder (it needs the folders beside it), '
              'and point --game at your Skate 3 folder.')
 
-CLIPS = 'data/scene/trickguide/'
-SEARCHED = ('db.big', 'miscload.big', 'fedata.big', 'fedynamic.big')
-NEEDLES = (b'trickguide_', b'TRICKGUIDE', b'TrickGuide', b'TrickTutorial', b'GRAB_STALE_GRAB')
-PARSE = ('trickguide_stale_011.abin', 'trickguide_kickflip_011.abin',
-         'trickguide_bs_nose_grind_011.abin', 'trickguide_bindpose1.abin')
-CONTEXT_LIMIT = 12
+DATABASE = {'skaterschema.bin', 'skaterschema.vlt', 'skatercollections.bin', 'skatercollections.vlt'}
+NAMED = ('trickguide', 'trickbook', 'tricktutorial', 'tutorial', 'inputslot')
+FULL_ROWS = 3
+NAMED_ROWS = 4
 
 
-def strings_near(data, at, span=200):
-    """Printable runs around a hit, which usually show the record it sits in."""
-    window = data[max(0, at - span):at + span]
-    return [s.decode('latin-1') for s in re.findall(rb'[\x20-\x7e]{5,}', window)][:CONTEXT_LIMIT]
+def texts(row):
+    """Text fields of a row, arrays included."""
+    out = {}
+    for name, field in row['fields'].items():
+        if field['type'] == 'EA::Reflection::Text':
+            items = field.get('array', {}).get('text_items')
+            out[name] = items if items is not None else field['data']
+    return out
 
 
-def search(name, data, lines):
-    found = False
-    for needle in NEEDLES:
-        hits = [m.start() for m in re.finditer(re.escape(needle), data)]
-        if not hits:
-            continue
-        if not found:
-            lines.append(f'  {name} ({len(data)} bytes)')
-            found = True
-        lines.append(f'    "{needle.decode()}" x{len(hits)}; first hit nearby: '
-                     + ' | '.join(strings_near(data, hits[0])))
+def mentions_clip(row):
+    if any('trickguide_' in str(v).lower() for v in texts(row).values()):
+        return True
+    # Inline fixed-size strings come out as hex rather than text.
+    for field in row['fields'].values():
+        try:
+            if b'trickguide_' in bytes.fromhex(str(field['data'])).lower():
+                return True
+        except ValueError:
+            pass
+    return False
+
+
+def describe(row, indent='    '):
+    lines = [f"{indent}class {row['class']}, key {row['key']}, parent {row['parent'] or '-'}"]
+    for name, field in row['fields'].items():
+        if 'array' in field:
+            array = field['array']
+            items = array.get('text_items', array.get('items'))
+            lines.append(f"{indent}  {name} [{field['type']}] array: {str(items)[:300]}")
+        else:
+            data = str(field['data'])
+            try:
+                raw = bytes.fromhex(data).rstrip(b'\0')
+                if raw and all(32 <= b < 127 for b in raw):
+                    data += f' ("{raw.decode()}")'
+            except ValueError:
+                pass
+            lines.append(f"{indent}  {name} [{field['type']}] = {data[:240]}")
+    return lines
 
 
 def main():
@@ -65,65 +87,51 @@ def main():
     parser.add_argument('--game', type=Path, default=Path.cwd(),
                         help='Folder holding default.xex and the data folder (default: current folder)')
     args = parser.parse_args()
-    big = find_big_directory(args.game)
-    lines = [f'BIG folder: {big}', '\n== Files mentioning the trick guide']
+    db = args.game / 'data' / 'big' / 'db.big'
+    if not db.is_file():
+        sys.exit(f'No data/big/db.big under {args.game}')
 
-    xex = args.game / 'default.xex'
-    if xex.is_file():
-        search('default.xex', xex.read_bytes(), lines)
-        lines.append('  (default.xex is usually compressed, so a miss there proves little)')
-    else:
-        lines.append(f'  no default.xex in {args.game}')
+    with tempfile.TemporaryDirectory() as temporary:
+        archive = BigArchive(db)
+        archive.extract_entries([e for e in archive.entries if Path(e.path).name.lower() in DATABASE],
+                                Path(temporary))
+        stem = Path(temporary) / 'data' / 'db'
+        names = (HERE / 'asset_pipeline' / 'names.txt').read_text(encoding='utf-8').splitlines()
+        rows = convert_vlt(stem / 'skaterschema', stem / 'skatercollections', names)['collections']
+    by_key = {r['key']: r for r in rows}
+    lines = [f'{len(rows)} collection rows in skatercollections']
 
-    clips = {}
-    for archive_path in sorted(big.glob('*.big')):
-        try:
-            archive = BigArchive(archive_path)
-        except Exception as error:
-            lines.append(f'  {archive_path.name}: could not open ({error})')
-            continue
-        searched = archive_path.name.lower() in SEARCHED
-        failures = 0
-        for entry in archive.entries:
-            p = entry.path.replace('\\', '/').lower()
-            if p.startswith(CLIPS):
-                clips[Path(p).name] = (archive, entry)
-            if not searched or p.startswith(CLIPS):
-                continue
-            try:
-                data = archive.read(entry)
-            except Exception:
-                failures += 1
-                continue
-            search(f'{archive_path.name}: {entry.path}', data, lines)
-        if searched and failures:
-            lines.append(f'  {archive_path.name}: {failures} entries could not be read')
+    guide = [r for r in rows if mentions_clip(r)]
+    lines.append(f'\n== Classes whose rows name a trickguide_ clip ({len(guide)} rows)')
+    for cls, n in Counter(r['class'] for r in guide).most_common():
+        lines.append(f'  {cls}: {n}')
 
-    lines.append(f'\n== Demo clip test parse ({len(clips)} clips found)')
-    skeletons = {}
-    for name in PARSE:
-        if name not in clips:
-            lines.append(f'  {name}: not found')
-            continue
-        archive, entry = clips[name]
-        try:
-            data = archive.read(entry)
-            abin = AbinFile(data)
-            h = abin.hierarchy
-            if h:
-                skeletons[name] = (h.num_bones, tuple(h.parents))
-            described = ', '.join(f'{c.header.name} ({c.num_frames} frames @ {c.fps:g} fps, '
-                                  f'{len(c.parts)} parts)' for c in abin.clips) or 'none'
-            lines.append(f'  {name}: {len(data)} bytes, compression {entry.compression}, '
-                         f'skeleton {h.num_bones if h else "none"} bones / '
-                         f'{h.num_parts if h else 0} parts, clips {described}, poses {len(abin.poses)}')
-        except Exception as error:
-            lines.append(f'  {name}: failed ({type(error).__name__}: {error})')
-    if len(set(skeletons.values())) == 1 and len(skeletons) > 1:
-        lines.append('  all parsed clips share one skeleton')
-    elif skeletons:
-        lines.append('  skeletons differ between clips: '
-                     + ', '.join(f'{n} {b} bones' for n, (b, _) in skeletons.items()))
+    lines.append(f'\n== {FULL_ROWS} of those rows in full')
+    for r in guide[:FULL_ROWS]:
+        lines += describe(r)
+
+    lines.append('\n== Every such row: key | parent | text fields')
+    for r in guide:
+        t = '; '.join(f'{k}={v}' for k, v in texts(r).items())
+        lines.append(f"  {r['key']} | {r['parent'] or '-'} | {t[:300]}")
+
+    lines.append('\n== Parent chain of those rows')
+    seen = set()
+    for parent in Counter(r['parent'] for r in guide):
+        chain = []
+        while parent and parent not in seen and parent in by_key:
+            seen.add(parent)
+            chain.append(by_key[parent])
+            parent = by_key[parent]['parent']
+        for r in chain:
+            lines += describe(r)
+
+    lines.append('\n== Classes named after the guide, its cameras or input slots')
+    classes = Counter(r['class'] for r in rows if any(w in r['class'].lower() for w in NAMED))
+    for cls, n in classes.most_common():
+        lines.append(f'  {cls}: {n} rows')
+        for r in [r for r in rows if r['class'] == cls][:NAMED_ROWS]:
+            lines += describe(r)
 
     report = '\n'.join(lines)
     print(report)
