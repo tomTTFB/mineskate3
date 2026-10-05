@@ -49,8 +49,8 @@ final class DemoScene {
     private static final int BONES = BONE_COUNT + 1;
 
     private static final float FOV_DEGREES = 50f;
-    /** Moves the view's centre right, clear of the panel (NDC units). */
-    private static final float SHIFT = 0.3f;
+    /** Moves the view's centre left, clear of the panel on the right (NDC units). */
+    private static final float SHIFT = -0.35f;
     private static final int BACKDROP = 0xFF20242C;
 
     private record Mesh(ResourceLocation texture, boolean lit, boolean sky, int first, int count) {}

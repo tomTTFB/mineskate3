@@ -83,10 +83,18 @@ impl Guide {
 const FIRST_CLIP: &str = "trickguide_ollie_01";
 /// Pause on the landing before the clip repeats.
 const HOLD_SECONDS: f32 = 0.8;
-/// Camera: beside the skater on the side they face, a little above.
-const CAMERA_DISTANCE: f32 = 4.2;
-const CAMERA_HEIGHT: f32 = 0.9;
-const CAMERA_FOLLOW: f32 = 4.0;
+/// Camera, as the original frames it: a three-quarter view from the side the
+/// skater faces and ahead of them, from a little above the hips.
+const CAMERA_DISTANCE: f32 = 3.6;
+const CAMERA_HEIGHT: f32 = 0.55;
+/// Aims below the hips, so the whole skater and board stay in frame.
+const CAMERA_LOOK_DROP: f32 = 0.15;
+/// How far round from the side towards the skater's direction of travel.
+const CAMERA_AHEAD_DEGREES: f32 = 35.0;
+/// Follow rates (1/s): close behind horizontally; slow vertically so the
+/// camera holds its height through pops and airs rather than bobbing.
+const CAMERA_FOLLOW: f32 = 6.0;
+const CAMERA_FOLLOW_UP: f32 = 1.5;
 
 /// `guideDemo` output: see `Player::write`.
 pub mod layout {
@@ -149,11 +157,13 @@ impl Player {
                 let across = Vec3::new(-travel.z, 0.0, travel.x);
                 let left = at(&start, "LEFTARM") - at(&start, "RIGHTARM");
                 let facing = left.cross(Vec3::Y);
-                self.side = if facing.dot(across) < 0.0 {
+                let side = if facing.dot(across) < 0.0 {
                     -across
                 } else {
                     across
                 };
+                let ahead = CAMERA_AHEAD_DEGREES.to_radians();
+                self.side = (side * ahead.cos() + travel * ahead.sin()).normalize();
                 self.target = Self::hips(&demo, &start);
                 self.demo = Some(demo);
                 self.failed = false;
@@ -184,7 +194,10 @@ impl Player {
         self.target = if restart {
             hips
         } else {
-            self.target.lerp(hips, 1.0 - (-dt * CAMERA_FOLLOW).exp())
+            let follow = |rate: f32| 1.0 - (-dt * rate).exp();
+            let across = self.target.lerp(hips, follow(CAMERA_FOLLOW));
+            let up = self.target.y + (hips.y - self.target.y) * follow(CAMERA_FOLLOW_UP);
+            Vec3::new(across.x, up, across.z)
         };
         let world = |name: &str| demo.bone(&bones, name);
         let Some(parts) = retarget::pose(|n| world(n).map(|m| m.w_axis.truncate())) else {
@@ -193,8 +206,9 @@ impl Player {
         out.resize(layout::BONES, 0.0);
         out[0] = 1.0;
         let eye = self.target + self.side * CAMERA_DISTANCE + Vec3::Y * CAMERA_HEIGHT;
+        let look = self.target - Vec3::Y * CAMERA_LOOK_DROP;
         out[layout::EYE..layout::EYE + 3].copy_from_slice(&eye.to_array());
-        out[layout::TARGET..layout::TARGET + 3].copy_from_slice(&self.target.to_array());
+        out[layout::TARGET..layout::TARGET + 3].copy_from_slice(&look.to_array());
         for (i, m) in parts.iter().enumerate() {
             out[layout::PARTS + 16 * i..layout::PARTS + 16 * (i + 1)]
                 .copy_from_slice(&m.to_cols_array());
@@ -466,8 +480,10 @@ mod tests {
             let eye = Vec3::from_slice(&out[layout::EYE..]);
             let target = Vec3::from_slice(&out[layout::TARGET..]);
             assert!(
-                (eye.distance(target) - (CAMERA_DISTANCE.powi(2) + CAMERA_HEIGHT.powi(2)).sqrt())
-                    .abs()
+                (eye.distance(target)
+                    - (CAMERA_DISTANCE.powi(2) + (CAMERA_HEIGHT + CAMERA_LOOK_DROP).powi(2))
+                        .sqrt())
+                .abs()
                     < 1e-3
             );
         }
