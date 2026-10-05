@@ -1,46 +1,63 @@
 """Look at Skate 3's Trick Guide in the user's extracted game, read only.
 
-Reports, for the guide only:
-- English strings that belong to it (labels and the text around the
-  "Stale Fish" description),
-- the string constants of its menu movie (tricks/trickguide), which name the
-  game functions it calls,
-- the demo animations in scene.big (data/scene/trickguide/*.abin), with a
-  test parse of a few of them,
-- the guide's demo set models (DIST_TrickGuide*.rx2).
+Earlier passes located the guide's menu movie (tricks/trickguide), its
+strings (ID_TRICK_*), demo clips (data/scene/trickguide/*.abin) and demo set
+(DIST_TrickGuide*.rx2). The menu asks a native FETrickTutorial object for its
+items, so this pass looks for that data and test-parses demo clips:
+
+- every file in the smaller archives (db, miscload, fedata) and default.xex
+  that mentions a demo clip name or a trick guide string label,
+- a test parse of a few demo clips, now through the chunked-capable reader,
+- whether the skeleton the clips are authored against matches across clips.
 
 Nothing is copied or converted. The report is printed and also written to
 trick-guide-report.txt in the current folder.
 
-    cd converter/tools
-    python find_trick_guide.py --game "path/to/Skate 3"
+    python converter/tools/find_trick_guide.py --game "path/to/Skate 3"
 
 --game defaults to the current folder.
 """
 import argparse
 import re
 import sys
-import tempfile
 from pathlib import Path
 
+# The archive reader is imported as tools.owned_game, as the converter does.
+HERE = Path(__file__).resolve().parent
+sys.path[:0] = [str(HERE), str(HERE.parent)]
 try:
-    from vendor.skate3_ui.big import BigArchive
-    from vendor.skate3_ui.language import pair_language_tables
+    from tools.owned_game.big import BigArchive
     from vendor.skate3_ui.project import find_big_directory
-    from vendor.skate3_ui.actions import Actions
     from vendor.skate3_anim.abin_importer import AbinFile
 except ModuleNotFoundError:
-    sys.exit('Run this from the mod\'s converter/tools folder (it needs the vendor folder beside it), '
+    sys.exit('Keep this script in the mod\'s converter/tools folder (it needs the folders beside it), '
              'and point --game at your Skate 3 folder.')
 
-LANGUAGE = ('data/fe/languages/labels/language_labels_global_skate3ng.bin',
-            'data/fe/languages/english/language_english_global_skate3ng.bin')
-MOVIE = 'data/fe/source/screens/tricks/trickguide'
 CLIPS = 'data/scene/trickguide/'
-LABEL = re.compile(r'trick_?guide|tricktip|trick_tip|_tg_|^id_tg', re.I)
-TEXT = re.compile(r'stale fish|turn the board sideways', re.I)
-STRING_LIMIT = 400
-PARSE_SAMPLES = 3
+SEARCHED = ('db.big', 'miscload.big', 'fedata.big', 'fedynamic.big')
+NEEDLES = (b'trickguide_', b'TRICKGUIDE', b'TrickGuide', b'TrickTutorial', b'GRAB_STALE_GRAB')
+PARSE = ('trickguide_stale_011.abin', 'trickguide_kickflip_011.abin',
+         'trickguide_bs_nose_grind_011.abin', 'trickguide_bindpose1.abin')
+CONTEXT_LIMIT = 12
+
+
+def strings_near(data, at, span=200):
+    """Printable runs around a hit, which usually show the record it sits in."""
+    window = data[max(0, at - span):at + span]
+    return [s.decode('latin-1') for s in re.findall(rb'[\x20-\x7e]{5,}', window)][:CONTEXT_LIMIT]
+
+
+def search(name, data, lines):
+    found = False
+    for needle in NEEDLES:
+        hits = [m.start() for m in re.finditer(re.escape(needle), data)]
+        if not hits:
+            continue
+        if not found:
+            lines.append(f'  {name} ({len(data)} bytes)')
+            found = True
+        lines.append(f'    "{needle.decode()}" x{len(hits)}; first hit nearby: '
+                     + ' | '.join(strings_near(data, hits[0])))
 
 
 def main():
@@ -49,76 +66,64 @@ def main():
                         help='Folder holding default.xex and the data folder (default: current folder)')
     args = parser.parse_args()
     big = find_big_directory(args.game)
-    lines = [f'BIG folder: {big}']
+    lines = [f'BIG folder: {big}', '\n== Files mentioning the trick guide']
 
-    wanted = {}  # path -> bytes, from the last archive that has it
-    clips = {}   # path -> (archive, entry), read lazily: there are hundreds
-    sets = []
+    xex = args.game / 'default.xex'
+    if xex.is_file():
+        search('default.xex', xex.read_bytes(), lines)
+        lines.append('  (default.xex is usually compressed, so a miss there proves little)')
+    else:
+        lines.append(f'  no default.xex in {args.game}')
+
+    clips = {}
     for archive_path in sorted(big.glob('*.big')):
         try:
             archive = BigArchive(archive_path)
         except Exception as error:
-            lines.append(f'{archive_path.name}: could not read ({error})')
+            lines.append(f'  {archive_path.name}: could not open ({error})')
             continue
+        searched = archive_path.name.lower() in SEARCHED
+        failures = 0
         for entry in archive.entries:
             p = entry.path.replace('\\', '/').lower()
-            if p in LANGUAGE or p in (MOVIE + '.apt', MOVIE + '.const'):
-                wanted[p] = archive.read(entry)
-            elif p.startswith(CLIPS) and p.endswith('.abin'):
-                clips[p] = (archive, entry)
-            elif 'dist_trickguide' in p:
-                sets.append(f'  {archive_path.name}: {entry.path} ({entry.unpacked_size} bytes)')
+            if p.startswith(CLIPS):
+                clips[Path(p).name] = (archive, entry)
+            if not searched or p.startswith(CLIPS):
+                continue
+            try:
+                data = archive.read(entry)
+            except Exception:
+                failures += 1
+                continue
+            search(f'{archive_path.name}: {entry.path}', data, lines)
+        if searched and failures:
+            lines.append(f'  {archive_path.name}: {failures} entries could not be read')
 
-    lines.append('\n== Trick guide strings')
-    if all(k in wanted for k in LANGUAGE):
-        with tempfile.TemporaryDirectory() as temporary:
-            files = []
-            for i, key in enumerate(LANGUAGE):
-                f = Path(temporary) / f'{i}.bin'
-                f.write_bytes(wanted[key])
-                files.append(f)
-            entries = pair_language_tables(*files)['entries']
-        hits = {i for i, e in enumerate(entries) if LABEL.search(str(e['label'] or ''))}
-        # The descriptions may sit under labels the pattern misses; show the
-        # neighbourhood of a known one so the labelling scheme is visible.
-        for i, e in enumerate(entries):
-            if TEXT.search(str(e['value'] or '')):
-                hits.update(range(max(0, i - 8), min(len(entries), i + 9)))
-        lines.append(f'{len(hits)} strings')
-        for i in sorted(hits)[:STRING_LIMIT]:
-            e = entries[i]
-            value = ' '.join(str(e['value'] or '').split())
-            lines.append(f"  [{i}] {str(e['label'] or '').strip()} = {value[:200]}")
-        if len(hits) > STRING_LIMIT:
-            lines.append(f'  ... {len(hits) - STRING_LIMIT} more')
-    else:
-        lines.append('English language table not found')
-
-    lines.append('\n== Menu movie constants (tricks/trickguide)')
-    if MOVIE + '.apt' in wanted and MOVIE + '.const' in wanted:
-        actions = Actions(wanted[MOVIE + '.apt'], wanted[MOVIE + '.const'])
-        strings = sorted({c['value'] for c in actions.constants if c['kind'] == 1})
-        lines.append(f'{len(strings)} distinct strings')
-        lines += [f'  {s}' for s in strings]
-    else:
-        lines.append('trickguide.apt/.const not found')
-
-    lines.append(f'\n== Demo animations ({len(clips)} in {CLIPS})')
-    lines += [f'  {Path(p).name}' for p in sorted(clips)]
-    for p in sorted(clips)[:PARSE_SAMPLES]:
-        archive, entry = clips[p]
+    lines.append(f'\n== Demo clip test parse ({len(clips)} clips found)')
+    skeletons = {}
+    for name in PARSE:
+        if name not in clips:
+            lines.append(f'  {name}: not found')
+            continue
+        archive, entry = clips[name]
         try:
-            abin = AbinFile(archive.read(entry))
-            parts = abin.hierarchy.num_parts if abin.hierarchy else 'none'
-            described = ', '.join(f'{c.header.name} ({c.num_frames} frames @ {c.fps:g} fps)'
-                                  for c in abin.clips) or 'none'
-            lines.append(f'  parse {Path(p).name}: skeleton parts {parts}, '
-                         f'clips {described}, poses {len(abin.poses)}')
+            data = archive.read(entry)
+            abin = AbinFile(data)
+            h = abin.hierarchy
+            if h:
+                skeletons[name] = (h.num_bones, tuple(h.parents))
+            described = ', '.join(f'{c.header.name} ({c.num_frames} frames @ {c.fps:g} fps, '
+                                  f'{len(c.parts)} parts)' for c in abin.clips) or 'none'
+            lines.append(f'  {name}: {len(data)} bytes, compression {entry.compression}, '
+                         f'skeleton {h.num_bones if h else "none"} bones / '
+                         f'{h.num_parts if h else 0} parts, clips {described}, poses {len(abin.poses)}')
         except Exception as error:
-            lines.append(f'  parse {Path(p).name}: failed ({type(error).__name__}: {error})')
-
-    lines.append('\n== Demo set models')
-    lines += sets or ['  none found']
+            lines.append(f'  {name}: failed ({type(error).__name__}: {error})')
+    if len(set(skeletons.values())) == 1 and len(skeletons) > 1:
+        lines.append('  all parsed clips share one skeleton')
+    elif skeletons:
+        lines.append('  skeletons differ between clips: '
+                     + ', '.join(f'{n} {b} bones' for n, (b, _) in skeletons.items()))
 
     report = '\n'.join(lines)
     print(report)
