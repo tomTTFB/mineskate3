@@ -36,6 +36,15 @@ final class SkateHud {
                 return;
             }
             text = String.format("Skate 3 | %s | %.0f km/h | %s", session.state(), speed, controller);
+            if (debug) {
+                int st = NativeSkate.STATUS;
+                int b = pad.buttons;
+                graphics.drawString(font, String.format(
+                        "Marker | pad LB %s, up %s, down %s | panel %s, can place %s, can return %s | placed %.0f, returned %.0f",
+                        yes(b & PadInput.LEFT_SHOULDER), yes(b & PadInput.DPAD_UP), yes(b & PadInput.DPAD_DOWN),
+                        yes(p[st + 4]), yes(p[st + 5]), yes(p[st + 6]), p[st + 8], p[st + 9]),
+                        6, 30, 0xFFFFFF, true);
+            }
             if (hud == 0) {
                 graphics.drawString(font, "Trick HUD not installed: Mods > MineSkate 3 > Config to add it", 6, 18,
                         0xFFFF80, true);
@@ -45,5 +54,9 @@ final class SkateHud {
             }
         }
         graphics.drawString(font, text, 6, 6, 0xFFFFFF, true);
+    }
+
+    private static String yes(float value) {
+        return value != 0f ? "yes" : "no";
     }
 }
