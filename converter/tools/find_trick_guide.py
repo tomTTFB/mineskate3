@@ -5,16 +5,24 @@ Lists front-end screens and other archive entries whose paths look related
 text. Nothing is copied or converted; the report is printed and also written
 to trick-guide-report.txt next to this script.
 
+    cd converter/tools
     python find_trick_guide.py --game "path/to/Skate 3"
+
+--game defaults to the current folder.
 """
 import argparse
 import re
+import sys
 import tempfile
 from pathlib import Path
 
-from vendor.skate3_ui.big import BigArchive
-from vendor.skate3_ui.language import pair_language_tables
-from vendor.skate3_ui.project import find_big_directory
+try:
+    from vendor.skate3_ui.big import BigArchive
+    from vendor.skate3_ui.language import pair_language_tables
+    from vendor.skate3_ui.project import find_big_directory
+except ModuleNotFoundError:
+    sys.exit('Run this from the mod\'s converter/tools folder (it needs the vendor folder beside it), '
+             'and point --game at your Skate 3 folder.')
 
 PATH_WORDS = re.compile(r'trick|guide|tip|tutorial|demo|help|school|learn|howto|pause', re.I)
 TEXT_WORDS = re.compile(r'trick ?guide|stale ?fish|turn the board sideways|back hand|flick', re.I)
@@ -26,8 +34,8 @@ LIMIT = 60
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--game', type=Path, required=True,
-                        help='Folder holding default.xex and the data folder')
+    parser.add_argument('--game', type=Path, default=Path.cwd(),
+                        help='Folder holding default.xex and the data folder (default: current folder)')
     args = parser.parse_args()
     big = find_big_directory(args.game)
     lines = [f'BIG folder: {big}']
@@ -78,7 +86,7 @@ def main():
 
     report = '\n'.join(lines)
     print(report)
-    out = Path(__file__).with_name('trick-guide-report.txt')
+    out = Path.cwd() / 'trick-guide-report.txt'
     out.write_text(report + '\n', encoding='utf-8')
     print(f'\nReport written to {out}')
 
