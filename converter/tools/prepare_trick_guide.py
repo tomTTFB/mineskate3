@@ -7,6 +7,8 @@ Writes, under <assets>/private/trickguide:
 - tricks.json: the trick and basics records the menu asks FETrickTutorial
   for (name and description labels, demo clip, input slots, camera tracks,
   category reference), with VLT inheritance resolved;
+- menu.json: the menu tree built from them (trick_guide_layout.py), and the
+  runtime movie flattened into one character table;
 - clips/*.abin: the guide's demo animations from scene.big.
 
 and trickguide-actions.txt beside it: a readable listing of the movie's
@@ -31,6 +33,7 @@ from vendor.skate3_ui.actions import Actions
 from tools.owned_game.big import BigArchive
 from tools.asset_pipeline.vlt import hash64
 from prepare_hud import font_mapping
+import trick_guide_layout
 
 MOVIE = 'data/fe/source/screens/tricks/trickguide'
 PREFIXES = (MOVIE, 'data/fe/source/controls/', 'data/fe/source/helper/')
@@ -298,6 +301,8 @@ def prepare(game: Path, assets: Path, work: Path, collections: Path):
                                                          encoding='utf-8')
     data = tricks(collections)
     (target / 'tricks.json').write_text(json.dumps(data, indent=1) + '\n', encoding='utf-8')
+    # One character table and the menu tree, as the runtime plays them.
+    trick_guide_layout.upgrade(target)
     clip_names = clips(game, target / 'clips')
 
     print(f'Trick guide: {len(names)} movie(s), {len(data["records"])} trick records, '
