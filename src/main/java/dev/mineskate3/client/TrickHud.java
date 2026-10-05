@@ -241,8 +241,9 @@ public final class TrickHud {
         String label = (controller ? PAD_LABELS : KEY_LABELS)[button];
         int colour = button < BUTTON_COLOURS.length ? BUTTON_COLOURS[button] : 0xFF2A2A2A;
         float cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
-        float height = Math.max(4f, y1 - y0);
-        float scale = Math.min(1.5f, height / 11f);
+        // The engine's glyph is smaller than the placeholder it replaces.
+        float height = Math.max(4f, (y1 - y0) * 0.7f);
+        float scale = Math.min(1f, height / 11f);
         float width = Math.max(height, font.width(label) * scale + 4 * scale);
         int left = Math.round(cx - width / 2), right = Math.round(cx + width / 2);
         int top = Math.round(cy - height / 2), bottom = Math.round(cy + height / 2);

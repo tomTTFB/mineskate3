@@ -55,7 +55,7 @@ CONNECTORS = {1: 'Plus', 2: 'Arrow', 3: 'Or'}
 # these are its labels from the language table, grouping the category
 # records by their key.
 TOP = [
-    ('ID_TRICK_TYPE_FLIP_TRICKS', 'ID_TRICK_TYPE_FLIP_TRICKS',
+    ('ID_TRICK_TYPE_FLIP_TRICKS', '',
      ['8BCA54F004465329', 'CB594B32C8703AB5', '3A3E0D4AA1B87F7F', 'F478BDEC4B22DE46',
       '0D3E66B81A15B7B8']),
     ('ID_TRICK_TYPE_AIR_TRICKS', 'ID_TRICK_TYPE_AIR_GRABS_DESC',
