@@ -27,6 +27,7 @@ public final class SetupScreen extends Screen {
     private Button browse;
     private Button convert;
     private Button install;
+    private Button guide;
     private volatile ConverterRunner.Python python;
     private volatile boolean probing;
     private volatile boolean busy;
@@ -70,6 +71,8 @@ public final class SetupScreen extends Screen {
                 .bounds(x, y + 26, (w - 8) / 2, 20).build());
         install = addRenderableWidget(Button.builder(Component.literal("Install numpy + Pillow"), b -> startInstall())
                 .bounds(x + (w + 8) / 2, y + 26, (w - 8) / 2, 20).build());
+        guide = addRenderableWidget(Button.builder(guideLabel(), b -> startGuide())
+                .bounds(x, y + 52, (w - 8) / 2, 20).build());
         int bw = Math.min(140, (w - 16) / 3);
         int row = this.width / 2 - bw - bw / 2 - 8;
         addRenderableWidget(Button.builder(skaterLabel(), b -> {
@@ -104,12 +107,20 @@ public final class SetupScreen extends Screen {
         return Component.literal("Rumble: " + (SkateSettings.rumble() ? "on" : "off"));
     }
 
+    private static Component guideLabel() {
+        return Component.literal(SkateData.guideReady() ? "Unpack Trick Guide again" : "Unpack Trick Guide");
+    }
+
     private void refreshButtons() {
         boolean havePython = python != null;
         convert.active = !busy && havePython && python.hasPackages() && !typedPath.isBlank();
         install.visible = havePython && !python.hasPackages();
         install.active = !busy;
         browse.active = !busy;
+        // The guide is added to an existing conversion; a full conversion includes it.
+        guide.visible = SkateData.ready();
+        guide.active = convert.active;
+        guide.setMessage(guideLabel());
     }
 
     private void probePython() {
@@ -125,6 +136,9 @@ public final class SetupScreen extends Screen {
                 status = "Python " + found.version() + " found, but it needs numpy and Pillow.";
             } else if (hudOnly) {
                 status = "Python " + found.version() + " ready. Select your default.xex again to add the trick HUD.";
+            } else if (SkateData.ready() && !SkateData.guideReady()) {
+                status = "Skate 3 data is installed. Select your default.xex again and press Unpack Trick Guide "
+                        + "to add the Trick Guide.";
             } else if (SkateData.ready()) {
                 status = "Skate 3 data is installed. Convert again only to refresh it.";
             } else {
@@ -186,30 +200,58 @@ public final class SetupScreen extends Screen {
         thread.start();
     }
 
-    private void startConvert() {
-        ConverterRunner.Python current = python;
+    /** The chosen default.xex, or null after saying why it cannot be used. */
+    private Path chosenXex() {
         String chosen = typedPath.trim();
         if (chosen.startsWith("\"") && chosen.endsWith("\"") && chosen.length() > 1) {
             chosen = chosen.substring(1, chosen.length() - 1);
         }
-        if (current == null || busy || chosen.isEmpty()) {
-            return;
+        if (chosen.isEmpty()) {
+            return null;
         }
         Path xex = Path.of(chosen);
         if (xex.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".iso")) {
             status = "ISO files do not work: extract the disc and select its default.xex.";
-            return;
+            return null;
         }
         if (!Files.isRegularFile(xex)) {
             status = "That file does not exist.";
+            return null;
+        }
+        return xex;
+    }
+
+    private void startGuide() {
+        ConverterRunner.Python current = python;
+        Path xex = current == null || busy ? null : chosenXex();
+        if (xex == null) {
+            return;
+        }
+        busy = true;
+        status = "Unpacking the Trick Guide...";
+        Thread thread = new Thread(() -> {
+            boolean ok = ConverterRunner.convert(current, xex, List.of(ConverterRunner.Step.GUIDE), this::log);
+            busy = false;
+            status = ok ? "Trick Guide unpacked. Press G (or Back on a controller while skating) to open it."
+                    : "The Trick Guide could not be unpacked. See the log above and logs/latest.log.";
+        }, "mineskate3-guide");
+        thread.setDaemon(true);
+        thread.start();
+    }
+
+    private void startConvert() {
+        ConverterRunner.Python current = python;
+        Path xex = current == null || busy ? null : chosenXex();
+        if (xex == null) {
             return;
         }
         busy = true;
         status = hudOnly ? "Adding the trick HUD..."
                 : "Converting Skate 3 data. The first conversion can take a few minutes...";
         boolean onlyHud = hudOnly;
+        List<ConverterRunner.Step> steps = List.of(onlyHud ? ConverterRunner.Step.HUD : ConverterRunner.Step.ALL);
         Thread thread = new Thread(() -> {
-            boolean ok = ConverterRunner.convert(current, xex, onlyHud, this::log);
+            boolean ok = ConverterRunner.convert(current, xex, steps, this::log);
             busy = false;
             if (ok && onlyHud) {
                 status = "Trick HUD added. Toggle skate mode off and on (or rejoin) to see it.";
@@ -243,7 +285,7 @@ public final class SetupScreen extends Screen {
             graphics.drawString(this.font, line, x, y, 0xD0D0D0, false);
             y += 10;
         }
-        int sy = 146;
+        int sy = guide.visible ? 172 : 146;
         for (FormattedCharSequence line : this.font.split(Component.literal(status), w)) {
             graphics.drawString(this.font, line, x, sy, 0xFFFF80, false);
             sy += 10;

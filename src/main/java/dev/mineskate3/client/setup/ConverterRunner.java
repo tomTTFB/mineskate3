@@ -172,11 +172,32 @@ public final class ConverterRunner {
         }
     }
 
-    /**
-     * Converts `xex` into SkateData.output(), or with `hudOnly` adds just the
-     * trick HUD to an existing conversion. Returns true on success.
-     */
-    public static boolean convert(Python python, Path xex, boolean hudOnly, Consumer<String> log) {
+    /** What a converter run writes. */
+    public enum Step {
+        /** Everything: skating data, the trick HUD and the Trick Guide. */
+        ALL(null),
+        /** Only the trick HUD, added to an existing conversion. */
+        HUD("--hud-only"),
+        /** Only the Trick Guide, added to an existing conversion. */
+        GUIDE("--trick-guide-only");
+
+        private final String flag;
+
+        Step(String flag) {
+            this.flag = flag;
+        }
+
+        boolean done() {
+            return switch (this) {
+                case ALL -> SkateData.ready();
+                case HUD -> SkateData.ready() && SkateData.hudReady();
+                case GUIDE -> SkateData.ready() && SkateData.guideReady();
+            };
+        }
+    }
+
+    /** Runs each of `steps` on `xex` in order, into SkateData.output(). Returns true if all succeed. */
+    public static boolean convert(Python python, Path xex, List<Step> steps, Consumer<String> log) {
         try {
             try {
                 NativeSkate.load(SkateData.root().resolve("natives"));
@@ -185,16 +206,20 @@ public final class ConverterRunner {
                 MineSkate3.LOGGER.warn("Converting without the native RefPack decoder: {}", e.getMessage());
             }
             Path converter = unpack();
-            List<String> command = new ArrayList<>(python.command());
-            command.addAll(List.of("-u", converter.resolve("mineskate_convert.py").toString(),
-                    "--xex", xex.toAbsolutePath().toString(),
-                    "--out", SkateData.output().toAbsolutePath().toString()));
-            if (hudOnly) {
-                command.add("--hud-only");
-            }
             Files.createDirectories(SkateData.root());
-            int exit = stream(command, converter, log);
-            return exit == 0 && SkateData.ready() && (!hudOnly || SkateData.hudReady());
+            for (Step step : steps) {
+                List<String> command = new ArrayList<>(python.command());
+                command.addAll(List.of("-u", converter.resolve("mineskate_convert.py").toString(),
+                        "--xex", xex.toAbsolutePath().toString(),
+                        "--out", SkateData.output().toAbsolutePath().toString()));
+                if (step.flag != null) {
+                    command.add(step.flag);
+                }
+                if (stream(command, converter, log) != 0 || !step.done()) {
+                    return false;
+                }
+            }
+            return true;
         } catch (IOException e) {
             log.accept(e.getMessage());
             return false;

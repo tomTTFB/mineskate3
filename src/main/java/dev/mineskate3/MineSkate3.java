@@ -1,5 +1,6 @@
 package dev.mineskate3;
 
+import dev.mineskate3.block.SkateBlocks;
 import dev.mineskate3.network.SkateNetwork;
 import dev.mineskate3.server.SkateConfig;
 import dev.mineskate3.server.SkateServer;
@@ -10,7 +11,7 @@ import net.neoforged.fml.config.ModConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/** Common entry point: networking and the server's view of who is skating. */
+/** Common entry point: networking, skate park blocks and the server's view of who is skating. */
 @Mod(MineSkate3.MODID)
 public final class MineSkate3 {
     public static final String MODID = "mineskate3";
@@ -20,6 +21,7 @@ public final class MineSkate3 {
         container.registerConfig(ModConfig.Type.SERVER, SkateConfig.SPEC);
         modBus.addListener(SkateNetwork::register);
         SkateSounds.register(modBus);
+        SkateBlocks.register(modBus);
         SkateServer.register();
     }
 }

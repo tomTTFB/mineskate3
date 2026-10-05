@@ -14,5 +14,11 @@
   "subtitles.mineskate3.bail": "Skater bails",
   "subtitles.mineskate3.marker_place": "Session marker placed",
   "subtitles.mineskate3.marker_return": "Session marker return",
-  "mineskate3.setup.skater": "Skater"
+  "mineskate3.setup.skater": "Skater",
+  "itemGroup.mineskate3.skate_park": "MineSkate 3 Skate Park",
+  "block.mineskate3.grind_rail": "Grind Rail",
+  "block.mineskate3.ramp": "Ramp",
+  "block.mineskate3.long_ramp_low": "Long Ramp (Bottom)",
+  "block.mineskate3.long_ramp_high": "Long Ramp (Top)",
+  "block.mineskate3.quarter_pipe": "Quarter Pipe"
 }

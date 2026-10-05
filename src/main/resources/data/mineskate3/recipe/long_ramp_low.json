@@ -1,0 +1,17 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "building",
+  "pattern": [
+    "  S",
+    "SSS"
+  ],
+  "key": {
+    "S": {
+      "item": "#minecraft:wooden_slabs"
+    }
+  },
+  "result": {
+    "id": "mineskate3:long_ramp_low",
+    "count": 6
+  }
+}

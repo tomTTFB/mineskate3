@@ -6,7 +6,8 @@ import java.util.List;
 /**
  * Grind rails that Minecraft blocks imply but the lip finder cannot see:
  * along the middle of runs of thin connected blocks (fences, walls, panes,
- * bars, chains) and down the open sides of staircases, as a hubba ledge.
+ * bars, chains), along lines of the mod's own grind rail blocks, and down the
+ * open sides of staircases, as a hubba ledge.
  * Works on the block grid BlockCollision gathers: index (x * sy + y) * sz + z,
  * with a one block margin that runs never start in.
  */
@@ -92,6 +93,45 @@ final class RailLayout {
             return;
         }
         add(x + 0.5 - dx * END, y + top, z + 0.5 - dz * END, ex + 0.5 + dx * END, y + top, ez + 0.5 + dz * END);
+    }
+
+    /**
+     * One rail per straight line of grind rail blocks, end edge to end edge.
+     * `axes` holds 1 for a rail along x, 2 along z, 0 for none; `tops` the
+     * bar's block-relative height. A single block is a rail on its own.
+     */
+    void blockRails(byte[] axes, float[] tops) {
+        for (int x = 1; x < sx - 1; x++) {
+            for (int y = 1; y < sy - 1; y++) {
+                for (int z = 1; z < sz - 1; z++) {
+                    int code = axes[index(x, y, z)];
+                    if (code != 0) {
+                        blockRail(axes, tops, x, y, z, code);
+                    }
+                }
+            }
+        }
+    }
+
+    private boolean sameRail(byte[] axes, float[] tops, int x, int y, int z, int code, float top) {
+        return inside(x, y, z) && axes[index(x, y, z)] == code && tops[index(x, y, z)] == top;
+    }
+
+    private void blockRail(byte[] axes, float[] tops, int x, int y, int z, int code) {
+        int dx = code == 1 ? 1 : 0;
+        int dz = code == 1 ? 0 : 1;
+        float top = tops[index(x, y, z)];
+        if (sameRail(axes, tops, x - dx, y, z - dz, code, top)) {
+            return; // not the start of the line
+        }
+        int n = 1;
+        while (sameRail(axes, tops, x + dx * n, y, z + dz * n, code, top)) {
+            n++;
+        }
+        // From the first block's back edge to the last block's front edge, down the middle.
+        double cx = x + (dx == 1 ? 0 : 0.5);
+        double cz = z + (dz == 1 ? 0 : 0.5);
+        add(cx, y + top, cz, cx + dx * n, y + top, cz + dz * n);
     }
 
     /**

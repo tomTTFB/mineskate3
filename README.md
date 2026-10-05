@@ -47,6 +47,14 @@ If you converted your data before the HUD existed, open
 **Mods > MineSkate 3 > Config**, select your `default.xex` again and press
 **Add trick HUD**; then toggle skate mode off and on.
 
+## Trick Guide
+
+Press **G** (or **Back** on a controller while skating) to open Skate 3's own
+Trick Guide: its menu movie, trick list and demo clips, played on your skater.
+A full conversion includes it. If your data was converted before the guide
+existed, open **Mods > MineSkate 3 > Config** (pressing **G** takes you there
+too), select your `default.xex` again and press **Unpack Trick Guide**.
+
 ## Session markers
 
 As in Skate 3: hold **LB** (keyboard **Q**) to bring up the marker panel,
@@ -114,6 +122,21 @@ Input usually fixes that.
   grindable down their middle, at the height you can see (not their 1.5 block
   collision). Straight staircases of three or more steps get a rail down each
   open side, like a hubba ledge.
+- **Skate park blocks.** The **MineSkate 3 Skate Park** creative tab (also
+  craftable) has blocks built for skating:
+  - **Grind Rail**: a bar on a post, half a block high. Rails in a line join
+    into one continuous rail; it runs the way you face when placing it.
+  - **Ramp**: a 45 degree kicker, one block up over one block.
+  - **Long Ramp (Bottom)** and **Long Ramp (Top)**: half as steep; place the
+    top behind the bottom for a two block long ramp, or use the bottom alone
+    as a small kicker.
+  - **Quarter Pipe**: a curved transition to vertical, with a small deck
+    whose coping edge should grind like any other ledge.
+
+  Ramps rise away from you as you place them. Skate rides their smooth
+  surface; walking players climb them like slabs. Ramps side by side, or end
+  to end, form one surface. The models and textures come from
+  `blocks/generate.py`.
 - **Surfaces.** Ice keeps your speed, blue ice even more; soul sand and honey
   bog you down; sand, gravel, snow, dirt, grass and wool are slower than
   stone or wood; slime bounces you back up when you land on it. These act on
@@ -175,7 +198,8 @@ Linux and macOS and packages all of them into one jar
   rubber-band you.
 - The camera mixin, retargeting directions and Skate's facing direction were
   written from the engine source and have not yet been checked in game.
-- Block surfaces, block rails, armour, held items, rumble and the server's
+- The skate park blocks, the in-game Trick Guide unpacking, block surfaces,
+  block rails, armour, held items, rumble and the server's
   movement checks are new and untested in game. The movement check limits
   (speed, airtime) are guesses at what real skating needs; if legitimate
   skating gets stopped, raise them in the server config and please report it.

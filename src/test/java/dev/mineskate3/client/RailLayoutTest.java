@@ -43,6 +43,24 @@ class RailLayoutTest {
     }
 
     @Test
+    void aLineOfRailBlocksIsOneRailEdgeToEdge() {
+        byte[] axes = new byte[S * S * S];
+        float[] tops = new float[S * S * S];
+        // Rails along z at x = 3, y = 2, z = 2..6, and a lone one along x.
+        for (int z = 2; z <= 6; z++) {
+            axes[index(3, 2, z)] = 2;
+            tops[index(3, 2, z)] = 0.5f;
+        }
+        axes[index(6, 4, 4)] = 1;
+        tops[index(6, 4, 4)] = 0.5f;
+        RailLayout layout = new RailLayout(S, S, S, 0, 10, 0);
+        layout.blockRails(axes, tops);
+        assertEquals(2, layout.rails.size());
+        assertArrayEquals(new float[] {3.5f, 12.5f, 2f, 3.5f, 12.5f, 7f}, layout.rails.get(0), 1e-5f);
+        assertArrayEquals(new float[] {6f, 14.5f, 4.5f, 7f, 14.5f, 4.5f}, layout.rails.get(1), 1e-5f);
+    }
+
+    @Test
     void anOpenStaircaseGetsARailOnEachSide() {
         byte[] stairs = new byte[S * S * S];
         boolean[] solid = new boolean[S * S * S];

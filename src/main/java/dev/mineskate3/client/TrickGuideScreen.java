@@ -1,8 +1,8 @@
 package dev.mineskate3.client;
 
 import dev.mineskate3.MineSkate3;
+import dev.mineskate3.client.setup.SetupScreen;
 import dev.mineskate3.client.setup.SkateData;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 import net.minecraft.client.Minecraft;
@@ -49,20 +49,20 @@ public final class TrickGuideScreen extends Screen {
     }
 
     static Path folder() {
-        return SkateData.assets().resolve("private").resolve("trickguide");
+        return SkateData.guide();
     }
 
     static boolean available() {
-        Path root = folder();
-        return Files.isRegularFile(root.resolve("runtime/trickguide.json"))
-                && Files.isRegularFile(root.resolve("menu.json"));
+        return SkateData.guideReady();
     }
 
     /** Opens the guide, or says in chat why it cannot. */
     public static void open() {
         Minecraft mc = Minecraft.getInstance();
         if (!available()) {
-            message(mc, "Trick Guide not converted: run the converter with --trick-guide-only");
+            // Not unpacked yet: the setup screen can do it from the player's default.xex.
+            message(mc, "Trick Guide not unpacked yet: select your default.xex and press Unpack Trick Guide");
+            mc.setScreen(new SetupScreen(mc.screen));
             return;
         }
         try {

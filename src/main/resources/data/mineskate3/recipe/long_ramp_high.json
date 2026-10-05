@@ -1,0 +1,17 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "building",
+  "pattern": [
+    "L",
+    "L"
+  ],
+  "key": {
+    "L": {
+      "item": "mineskate3:long_ramp_low"
+    }
+  },
+  "result": {
+    "id": "mineskate3:long_ramp_high",
+    "count": 2
+  }
+}

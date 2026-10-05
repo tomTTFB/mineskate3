@@ -1,5 +1,7 @@
 package dev.mineskate3.client;
 
+import dev.mineskate3.block.GrindRailBlock;
+import dev.mineskate3.block.RampBlock;
 import java.util.List;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -25,6 +27,10 @@ import net.minecraft.world.phys.shapes.VoxelShape;
  * their visible shape, so the board meets the top you can see, and bring a
  * rail down their middle in place of the twin lips their edges would make.
  * Straight staircases get a rail down each open side.
+ *
+ * <p>The mod's own blocks: grind rails bring one continuous rail along each
+ * line of them, and ramps give Skate their smooth surface instead of the
+ * stepped shape Minecraft walks on.
  */
 public final class BlockCollision {
     public static final int RADIUS = 24;
@@ -115,6 +121,8 @@ public final class BlockCollision {
         float[] tops = new float[sx * sy * sz];
         byte[] stairs = new byte[sx * sy * sz];
         boolean[] solid = new boolean[sx * sy * sz];
+        byte[] railAxes = new byte[sx * sy * sz];
+        BlockState[] ramps = new BlockState[sx * sy * sz];
         BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
         int x0 = centre.getX() - RADIUS - 1;
         int y0 = centre.getY() - BELOW - 1;
@@ -133,7 +141,13 @@ public final class BlockCollision {
                     }
                     int i = (x * sy + y) * sz + z;
                     solid[i] = true;
-                    if (isThin(state)) {
+                    if (state.getBlock() instanceof GrindRailBlock) {
+                        thin[i] = true;
+                        tops[i] = (float) GrindRailBlock.TOP;
+                        railAxes[i] = state.getValue(GrindRailBlock.AXIS) == Direction.Axis.X ? (byte) 1 : (byte) 2;
+                    } else if (state.getBlock() instanceof RampBlock) {
+                        ramps[i] = state;
+                    } else if (isThin(state)) {
                         // Fences collide 1.5 high; skate on the top you can see.
                         VoxelShape visible = state.getShape(level, pos);
                         shape = visible.isEmpty() ? shape : visible;
@@ -195,6 +209,10 @@ public final class BlockCollision {
                         continue;
                     }
                     out.noLip = thin[i] ? (byte) 1 : (byte) 0;
+                    if (ramps[i] != null) {
+                        ramp(out, ramps, full, sy, sz, x, y, z, bx, by, bz);
+                        continue;
+                    }
                     for (AABB box : shape.toAabbs()) {
                         double ax = bx + box.minX, ay = by + box.minY, az = bz + box.minZ;
                         double cx = bx + box.maxX, cy = by + box.maxY, cz = bz + box.maxZ;
@@ -227,10 +245,99 @@ public final class BlockCollision {
         float maxZ = (float) (centre.getZ() + RADIUS - originZ);
         RailLayout rails = new RailLayout(sx, sy, sz, x0 - originX, y0 - originY, z0 - originZ);
         rails.thinRuns(links, tops);
+        rails.blockRails(railAxes, tops);
         rails.staircases(stairs, solid);
         int count = out.floats / 9;
         return new BlockCollision(out.data, count, java.util.Arrays.copyOf(out.flags, count), rails.rails,
                 centre.immutable(), minX, minZ, maxX, maxZ);
+    }
+
+    /**
+     * A ramp's smooth surface, its sides, front, back and bottom. Faces
+     * against a full block, or against a ramp continuing it (the same ramp
+     * beside it, or a ramp ahead or behind whose edge is at least as high),
+     * are skipped, so a row of ramps is one surface.
+     */
+    private static void ramp(Builder out, BlockState[] ramps, boolean[] full, int sy, int sz, int x, int y, int z,
+            double bx, double by, double bz) {
+        int i = (x * sy + y) * sz + z;
+        BlockState state = ramps[i];
+        RampBlock block = (RampBlock) state.getBlock();
+        RampBlock.Profile profile = block.profile;
+        Direction facing = state.getValue(RampBlock.FACING);
+        Direction right = facing.getClockWise();
+        java.util.function.ToIntFunction<Direction> next =
+                d -> ((x + d.getStepX()) * sy + y + d.getStepY()) * sz + z + d.getStepZ();
+        int ahead = next.applyAsInt(facing);
+        int behind = next.applyAsInt(facing.getOpposite());
+        boolean back = !full[ahead] && !(ramps[ahead] != null
+                && ramps[ahead].getValue(RampBlock.FACING) == facing
+                && ((RampBlock) ramps[ahead].getBlock()).profile.front() >= profile.back());
+        boolean front = !full[behind] && !(ramps[behind] != null
+                && ramps[behind].getValue(RampBlock.FACING) == facing
+                && ((RampBlock) ramps[behind].getBlock()).profile.back() >= profile.front());
+        boolean[] sides = new boolean[2];
+        for (int s = 0; s < 2; s++) {
+            int n = next.applyAsInt(s == 0 ? right.getOpposite() : right);
+            sides[s] = !full[n] && !(ramps[n] != null && ramps[n].getBlock() == block
+                    && ramps[n].getValue(RampBlock.FACING) == facing);
+        }
+        boolean bottom = !full[(x * sy + y - 1) * sz + z];
+
+        RampFaces faces = new RampFaces(out, facing, right, bx, by, bz);
+        double[][] p = profile.points;
+        for (int k = 0; k + 1 < p.length; k++) {
+            double ua = p[k][0], ha = p[k][1], ub = p[k + 1][0], hb = p[k + 1][1];
+            faces.face(-(hb - ha), 0, ub - ua, ua, 0, ha, ub, 0, hb, ub, 1, hb, ua, 1, ha);
+            if (sides[0]) {
+                faces.face(0, -1, 0, ua, 0, 0, ub, 0, 0, ub, 0, hb, ua, 0, ha);
+            }
+            if (sides[1]) {
+                faces.face(0, 1, 0, ua, 1, 0, ub, 1, 0, ub, 1, hb, ua, 1, ha);
+            }
+        }
+        double h0 = profile.front();
+        double h1 = profile.back();
+        if (front && h0 > 0) {
+            faces.face(-1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, h0, 0, 0, h0);
+        }
+        if (back && h1 > 0) {
+            faces.face(1, 0, 0, 1, 0, 0, 1, 1, 0, 1, 1, h1, 1, 0, h1);
+        }
+        if (bottom) {
+            faces.face(0, 0, -1, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0);
+        }
+    }
+
+    /** Quads given in a ramp's own frame (depth u, width v, height h), wound to face outward. */
+    private record RampFaces(Builder out, Direction facing, Direction right, double bx, double by, double bz) {
+        /** The quad a, b, c, d whose outward normal is roughly (nu, nv, nh). */
+        void face(double nu, double nv, double nh, double... uvh) {
+            double[][] w = new double[4][];
+            for (int k = 0; k < 4; k++) {
+                double[] xz = RampBlock.toBlock(facing, uvh[3 * k], uvh[3 * k + 1]);
+                w[k] = new double[] {bx + xz[0], by + uvh[3 * k + 2], bz + xz[1]};
+            }
+            double nx = nu * facing.getStepX() + nv * right.getStepX();
+            double nz = nu * facing.getStepZ() + nv * right.getStepZ();
+            tri(w[0], w[1], w[2], nx, nh, nz);
+            tri(w[0], w[2], w[3], nx, nh, nz);
+        }
+
+        private void tri(double[] a, double[] b, double[] c, double nx, double ny, double nz) {
+            double ex = b[0] - a[0], ey = b[1] - a[1], ez = b[2] - a[2];
+            double fx = c[0] - a[0], fy = c[1] - a[1], fz = c[2] - a[2];
+            double cx = ey * fz - ez * fy, cy = ez * fx - ex * fz, cz = ex * fy - ey * fx;
+            double dot = cx * nx + cy * ny + cz * nz;
+            if (cx * cx + cy * cy + cz * cz < 1e-12) {
+                return; // a corner where the surface meets the floor
+            }
+            if (dot >= 0) {
+                out.tri(a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2]);
+            } else {
+                out.tri(a[0], a[1], a[2], c[0], c[1], c[2], b[0], b[1], b[2]);
+            }
+        }
     }
 
     /** Blocks whose rail runs down their middle: fences, panes, bars, walls, lying chains. */

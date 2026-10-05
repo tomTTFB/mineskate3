@@ -1,0 +1,21 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "building",
+  "pattern": [
+    "P  ",
+    "P  ",
+    "PPI"
+  ],
+  "key": {
+    "P": {
+      "item": "#minecraft:planks"
+    },
+    "I": {
+      "item": "minecraft:iron_ingot"
+    }
+  },
+  "result": {
+    "id": "mineskate3:quarter_pipe",
+    "count": 4
+  }
+}
