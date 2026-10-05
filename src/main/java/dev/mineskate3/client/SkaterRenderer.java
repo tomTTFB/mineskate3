@@ -83,13 +83,14 @@ public final class SkaterRenderer {
                 && bones.length >= SkinnedMeshes.boneCount() * 12;
         boolean drewSkater = skinnable && SkateSettings.skate3Skater()
                 && SkinnedMeshes.render(NativeSkate.MESH_SKATER, bones, poseStack, buffers, light, 0, 0, 0);
+        Matrix4f[] parts = new Matrix4f[6];
+        for (int i = 0; i < 6; i++) {
+            parts[i] = unpack(remote.data(), i * 12);
+        }
         if (!drewSkater) {
-            Matrix4f[] parts = new Matrix4f[6];
-            for (int i = 0; i < 6; i++) {
-                parts[i] = unpack(remote.data(), i * 12);
-            }
             renderParts(player, parts, poseStack, buffers, light, 0, 0, 0);
         }
+        SkaterEquipment.render(player, parts, poseStack, buffers, light, 0, 0, 0);
         if (!(skinnable && SkinnedMeshes.render(NativeSkate.MESH_BOARD, bones, poseStack, buffers, light, 0, 0, 0))) {
             renderBox(unpack(remote.data(), 6 * 12), poseStack,
                     buffers.getBuffer(RenderType.entityCutoutNoCull(REMOTE_BOARD)), light, 0, 0, 0);
@@ -191,13 +192,14 @@ public final class SkaterRenderer {
         float fx = (float) ox, fy = (float) oy, fz = (float) oz;
         boolean drewSkater = bones != null && SkateSettings.skate3Skater()
                 && SkinnedMeshes.render(NativeSkate.MESH_SKATER, bones, poseStack, buffers, light, fx, fy, fz);
+        Matrix4f[] parts = new Matrix4f[6];
+        for (int i = 0; i < 6; i++) {
+            parts[i] = new Matrix4f().set(pose, NativeSkate.PARTS + i * 16);
+        }
         if (!drewSkater) {
-            Matrix4f[] parts = new Matrix4f[6];
-            for (int i = 0; i < 6; i++) {
-                parts[i] = new Matrix4f().set(pose, NativeSkate.PARTS + i * 16);
-            }
             renderParts(mc.player, parts, poseStack, buffers, light, ox, oy, oz);
         }
+        SkaterEquipment.render(mc.player, parts, poseStack, buffers, light, ox, oy, oz);
         if (bones == null
                 || !SkinnedMeshes.render(NativeSkate.MESH_BOARD, bones, poseStack, buffers, light, fx, fy, fz)) {
             renderBox(new Matrix4f().set(pose, NativeSkate.BOARD), poseStack,
@@ -258,7 +260,7 @@ public final class SkaterRenderer {
     }
 
     /** Rotation-only normal matrix: the part matrices carry a stretch along the limb. */
-    private static Matrix3f normalMatrix(Matrix4f m) {
+    static Matrix3f normalMatrix(Matrix4f m) {
         Vector3f x = m.getColumn(0, new Vector3f()).normalize();
         Vector3f y = m.getColumn(1, new Vector3f()).normalize();
         Vector3f z = m.getColumn(2, new Vector3f()).normalize();
@@ -267,6 +269,12 @@ public final class SkaterRenderer {
 
     private static void part(ModelPart part, Matrix4f matrix, PoseStack poseStack, VertexConsumer consumer,
             int light, int overlay, double ox, double oy, double oz, boolean visible) {
+        part(part, matrix, poseStack, consumer, light, overlay, -1, ox, oy, oz, visible);
+    }
+
+    /** Draws `part` with its pivot and rotation replaced by `matrix`, tinted `color` (ARGB). */
+    static void part(ModelPart part, Matrix4f matrix, PoseStack poseStack, VertexConsumer consumer,
+            int light, int overlay, int color, double ox, double oy, double oz, boolean visible) {
         if (!visible || matrix.m33() == 0f) {
             return;
         }
@@ -280,7 +288,7 @@ public final class SkaterRenderer {
         PoseStack.Pose last = poseStack.last();
         last.pose().translate((float) ox, (float) oy, (float) oz).mul(matrix);
         last.normal().mul(normalMatrix(matrix));
-        part.render(poseStack, consumer, light, overlay);
+        part.render(poseStack, consumer, light, overlay, color);
         poseStack.popPose();
         part.x = x;
         part.y = y;

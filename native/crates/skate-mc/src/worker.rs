@@ -3,11 +3,37 @@
 //! and the board stay resident so the next toggle is instant.
 use crate::{hud::Hud, mesh::{self, Meshes}, rails, retarget};
 use bevy::math::{Mat4, Vec3};
-use skate_host::bridge::{InputFrame, PreparedCollision, Pose, Session, Status as SkaterStatus};
+use skate_host::bridge::{
+    InputFrame, PreparedCollision, Pose, Session, Status as SkaterStatus, Surface,
+};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, mpsc};
 
 pub type Triangle = [[f32; 3]; 3];
+pub type Rail = Vec<[f32; 3]>;
+
+/// Block collision for the session: triangles, which of them may never be a
+/// grind lip (thin blocks that bring their own rails), and those rails.
+#[derive(Default)]
+pub struct Blocks {
+    pub triangles: Vec<Triangle>,
+    pub no_lip: Vec<bool>,
+    pub rails: Vec<Rail>,
+    /// Lips are only trusted inside [min x, min z, max x, max z].
+    pub inside: Option<[f32; 4]>,
+}
+
+/// The skate engine counts rails in a u16.
+const MAX_RAILS: usize = u16::MAX as usize;
+
+/// The supplied rails, then lips found in the triangles, up to the cap.
+pub fn all_rails(blocks: &Blocks) -> Vec<Rail> {
+    let (found, _) = rails::find_skate(&blocks.triangles, &blocks.no_lip, blocks.inside);
+    let mut all: Vec<Rail> = blocks.rails.iter().filter(|r| r.len() >= 2).cloned().collect();
+    all.extend(found);
+    all.truncate(MAX_RAILS);
+    all
+}
 
 /// Layout of the float array `pose` fills.
 pub mod layout {
@@ -36,9 +62,9 @@ pub struct Pad {
 }
 
 enum Job {
-    Collision(u64, Vec<Triangle>, Option<[f32; 4]>),
+    Collision(u64, Blocks),
     Activate { spawn: [f32; 3], heading: f32, aspect: f32 },
-    Step { dt: f32, pad: Option<Pad>, aspect: f32 },
+    Step { dt: f32, pad: Option<Pad>, surface: Surface, aspect: f32 },
     Suspend,
 }
 
@@ -123,11 +149,9 @@ impl Host {
         })
     }
 
-    pub fn collision(&mut self, triangles: Vec<Triangle>, inside: Option<[f32; 4]>) {
+    pub fn collision(&mut self, blocks: Blocks) {
         self.collision_seq += 1;
-        let _ = self
-            .send
-            .send(Job::Collision(self.collision_seq, triangles, inside));
+        let _ = self.send.send(Job::Collision(self.collision_seq, blocks));
     }
 
     pub fn activate(&self, spawn: [f32; 3], heading: f32, aspect: f32) {
@@ -138,8 +162,13 @@ impl Host {
         });
     }
 
-    pub fn step(&self, dt: f32, pad: Option<Pad>, aspect: f32) {
-        let _ = self.send.send(Job::Step { dt, pad, aspect });
+    pub fn step(&self, dt: f32, pad: Option<Pad>, surface: Surface, aspect: f32) {
+        let _ = self.send.send(Job::Step {
+            dt,
+            pad,
+            surface,
+            aspect,
+        });
     }
 
     pub fn suspend(&self) {
@@ -190,7 +219,7 @@ fn run(root: PathBuf, receive: mpsc::Receiver<Job>, shared: &Mutex<Shared>) -> R
     // Block collision streams in: rails are found and the collision world
     // built off this thread, then swapped in between steps.
     let builder = session.collision_builder();
-    let (build_send, build_jobs) = mpsc::channel::<(u64, Vec<Triangle>, Option<[f32; 4]>)>();
+    let (build_send, build_jobs) = mpsc::channel::<(u64, Blocks)>();
     let (built_send, built) = mpsc::channel::<Built>();
     std::thread::Builder::new()
         .name("mineskate3-collision".into())
@@ -200,13 +229,13 @@ fn run(root: PathBuf, receive: mpsc::Receiver<Job>, shared: &Mutex<Shared>) -> R
                 while let Ok(newer) = build_jobs.try_recv() {
                     job = newer;
                 }
-                let (seq, mut triangles, inside) = job;
-                if triangles.is_empty() {
-                    triangles.push(PLACEHOLDER);
+                let (seq, mut blocks) = job;
+                if blocks.triangles.is_empty() {
+                    blocks.triangles.push(PLACEHOLDER);
                 }
-                let (found, _) = rails::find_skate(&triangles, inside);
+                let found = all_rails(&blocks);
                 let count = found.len();
-                let result = builder.build(triangles, found).map(|p| (p, count));
+                let result = builder.build(blocks.triangles, found).map(|p| (p, count));
                 if built_send.send((seq, result)).is_err() {
                     break;
                 }
@@ -233,9 +262,9 @@ fn run(root: PathBuf, receive: mpsc::Receiver<Job>, shared: &Mutex<Shared>) -> R
     let mut packet = 0u32;
     while let Ok(job) = receive.recv() {
         match job {
-            Job::Collision(seq, triangles, inside) => {
+            Job::Collision(seq, blocks) => {
                 requested = seq;
-                if build_send.send((seq, triangles, inside)).is_err() {
+                if build_send.send((seq, blocks)).is_err() {
                     return Err("Skate collision thread stopped".into());
                 }
             }
@@ -283,7 +312,12 @@ fn run(root: PathBuf, receive: mpsc::Receiver<Job>, shared: &Mutex<Shared>) -> R
                     s.status = Status::Ready;
                 }
             }
-            Job::Step { dt, pad, aspect } => {
+            Job::Step {
+                dt,
+                pad,
+                surface,
+                aspect,
+            } => {
                 if !active {
                     continue;
                 }
@@ -301,7 +335,9 @@ fn run(root: PathBuf, receive: mpsc::Receiver<Job>, shared: &Mutex<Shared>) -> R
                 // The native camera can change the simulation period.
                 while accumulated >= session.period() {
                     accumulated -= session.period();
+                    let before = session.surface_sample();
                     session.advance()?;
+                    session.apply_surface(before, surface);
                     // The movie steps once per simulation tick, as in skate-game.
                     if let Some(h) = hud.as_mut()
                         && let Err(e) = h.update(&session.scoring())

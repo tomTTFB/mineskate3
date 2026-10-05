@@ -30,6 +30,7 @@ import net.neoforged.neoforge.client.gui.IConfigScreenFactory;
 import net.neoforged.fml.ModContainer;
 import dev.mineskate3.client.setup.SetupScreen;
 import net.neoforged.neoforge.common.NeoForge;
+import net.neoforged.neoforge.event.level.ChunkEvent;
 import net.neoforged.neoforge.event.tick.PlayerTickEvent;
 import org.lwjgl.glfw.GLFW;
 
@@ -67,6 +68,11 @@ public final class MineSkate3Client {
             public void remotePose(SkateNetwork.RemotePose pose) {
                 SkaterRenderer.remotePose(pose);
             }
+
+            @Override
+            public void stopped(SkateNetwork.Stop stop) {
+                SkateSession.get().forcedStop(stop.reason());
+            }
         });
         NeoForge.EVENT_BUS.addListener(this::onClientTickPre);
         NeoForge.EVENT_BUS.addListener(this::onClientTickPost);
@@ -81,6 +87,13 @@ public final class MineSkate3Client {
         NeoForge.EVENT_BUS.addListener(this::onRenderGui);
         NeoForge.EVENT_BUS.addListener(this::onRenderGuiLayer);
         NeoForge.EVENT_BUS.addListener(this::onLogout);
+        NeoForge.EVENT_BUS.addListener(this::onChunkLoad);
+    }
+
+    private void onChunkLoad(ChunkEvent.Load event) {
+        if (event.getLevel() instanceof net.minecraft.world.level.Level level && level.isClientSide()) {
+            SkateSession.get().chunkLoaded(level, event.getChunk().getPos());
+        }
     }
 
     private void onRegisterKeys(RegisterKeyMappingsEvent event) {

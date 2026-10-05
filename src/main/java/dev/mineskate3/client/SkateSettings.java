@@ -14,6 +14,7 @@ public final class SkateSettings {
     private static boolean loaded;
     private static boolean skate3Skater = true;
     private static boolean sounds = true;
+    private static boolean rumble = true;
 
     private SkateSettings() {}
 
@@ -35,6 +36,7 @@ public final class SkateSettings {
             properties.load(reader);
             skate3Skater = !"minecraft".equals(properties.getProperty("skater", "skate3"));
             sounds = !"false".equals(properties.getProperty("sounds", "true"));
+            rumble = !"false".equals(properties.getProperty("rumble", "true"));
         } catch (IOException e) {
             MineSkate3.LOGGER.warn("Could not read {}", file, e);
         }
@@ -44,6 +46,7 @@ public final class SkateSettings {
         Properties properties = new Properties();
         properties.setProperty("skater", skate3Skater ? "skate3" : "minecraft");
         properties.setProperty("sounds", Boolean.toString(sounds));
+        properties.setProperty("rumble", Boolean.toString(rumble));
         try {
             Files.createDirectories(file().getParent());
             try (Writer writer = Files.newBufferedWriter(file())) {
@@ -74,6 +77,18 @@ public final class SkateSettings {
     public static void setSounds(boolean value) {
         load();
         sounds = value;
+        save();
+    }
+
+    /** Controller vibration (XInput pads only). */
+    public static boolean rumble() {
+        load();
+        return rumble;
+    }
+
+    public static void setRumble(boolean value) {
+        load();
+        rumble = value;
         save();
     }
 }

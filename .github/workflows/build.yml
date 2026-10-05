@@ -7,7 +7,7 @@ on:
 
 jobs:
   java:
-    name: Java compile
+    name: Java compile and test
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -16,8 +16,8 @@ jobs:
           distribution: temurin
           java-version: 21
       - uses: gradle/actions/setup-gradle@v4
-      - name: Compile
-        run: ./gradlew compileJava --stacktrace
+      - name: Compile and test
+        run: ./gradlew compileJava test --stacktrace
 
   native:
     name: Native (${{ matrix.platform }})

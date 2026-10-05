@@ -55,7 +55,7 @@ press **D-pad down** (down arrow) to drop a marker, and hold **D-pad up**
 
 ## Skater, board and sounds
 
-**Mods > MineSkate 3 > Config** has two switches:
+**Mods > MineSkate 3 > Config** has three switches:
 
 - **Skater**: the converted Skate 3 skater (default), or the Minecraft player
   model with your own skin.
@@ -63,6 +63,14 @@ press **D-pad down** (down arrow) to drop a marker, and hold **D-pad up**
   chimes. Skate 3's own audio cannot be extracted yet, so these are original
   synthesised effects (`sounds/generate.py`), driven by the engine's physics
   state.
+- **Rumble**: controller vibration for rolling, grinds, pops, landings and
+  bails. Only XInput pads (Xbox controllers, or anything Steam Input presents
+  as one, on Windows) can vibrate; GLFW, which reads every other pad, has no
+  rumble call.
+
+Armour and held items are drawn on the skater, using the vanilla armour
+boxes and item poses (over the Skate 3 skater as well, as an approximation).
+Custom armour models from other mods are not used.
 
 Other players with the mod see your real board, and your Skate 3 skater if
 they have that switch on: your skeleton is sent to them and they pose their
@@ -99,6 +107,40 @@ The HUD line shows which one is in use. If it says a controller was "not
 recognised", that pad has no mapping; on Windows, running it through Steam
 Input usually fixes that.
 
+## Blocks and surfaces
+
+- **Rails.** Ledges where the ground drops away become grind rails
+  automatically. Fences, walls, glass panes, iron bars and lying chains are
+  grindable down their middle, at the height you can see (not their 1.5 block
+  collision). Straight staircases of three or more steps get a rail down each
+  open side, like a hubba ledge.
+- **Surfaces.** Ice keeps your speed, blue ice even more; soul sand and honey
+  bog you down; sand, gravel, snow, dirt, grass and wool are slower than
+  stone or wood; slime bounces you back up when you land on it. These act on
+  top of Skate's own physics, which only knows one ground material.
+- **Building while skating.** Placing or breaking a block near you rebuilds
+  the board's collision within a tenth of a second.
+
+## Servers
+
+Skaters are moved by Skate's physics on their own client, so the server
+relaxes its movement corrections for them. To keep that from being abused,
+the server checks each skater's movement every tick (except the owner of a
+singleplayer world): moving through walls, sustained speed past the limit,
+or hanging in the air without falling takes the player off the board and puts
+them back where they last moved cleanly.
+
+`config/mineskate3-server.toml` in the server folder (a copy in
+`<world>/serverconfig/` overrides it for that world):
+
+| Setting | Default | What |
+| --- | --- | --- |
+| `allowSkating` | `true` | Whether anyone may skate |
+| `permissionLevel` | `0` | Operator level needed to skate (0 = everyone) |
+| `movementChecks.enabled` | `true` | The movement checks above |
+| `movementChecks.maxSpeed` | `30` | Blocks per second |
+| `movementChecks.maxAirSeconds` | `10` | Longest time off the ground without falling |
+
 ## How it works
 
 | Piece | Where | What |
@@ -133,10 +175,11 @@ Linux and macOS and packages all of them into one jar
   rubber-band you.
 - The camera mixin, retargeting directions and Skate's facing direction were
   written from the engine source and have not yet been checked in game.
-- Blocks are refreshed every two seconds while skating, so a block you place
-  may take a moment to become solid for the board.
-- Armour and held items are not drawn while skating.
-- No controller vibration yet.
+- Block surfaces, block rails, armour, held items, rumble and the server's
+  movement checks are new and untested in game. The movement check limits
+  (speed, airtime) are guesses at what real skating needs; if legitimate
+  skating gets stopped, raise them in the server config and please report it.
+- Controller vibration works only with XInput pads on Windows.
 - The sounds are stand-ins, not Skate 3's own; their mix is untuned.
 
 ## Licence
