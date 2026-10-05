@@ -31,6 +31,7 @@ pub struct TextAssets {
 impl TextAssets {
     pub fn load(json: &serde_json::Value) -> Result<Self, String> {
         let mut out = Self::default();
+        let mut unresolved = Vec::new();
         out.language =
             serde_json::from_value(json["language"].clone()).map_err(|e| e.to_string())?;
         for c in json["characters"]
@@ -42,6 +43,12 @@ impl TextAssets {
             }
             let name = c["font"]["name"].as_str().ok_or("HUD font name missing")?;
             let asset = &json["fonts"][name];
+            // A family the disc does not ship as a bitmap font (HelveticaPresto)
+            // is drawn with the movie's first resolved font instead.
+            if asset.is_null() {
+                unresolved.push(c["id"].as_i64().ok_or("Invalid font character id")? as i32);
+                continue;
+            }
             let d = &asset["definition"];
             let glyphs: Vec<Glyph> =
                 serde_json::from_value(d["glyphs"].clone()).map_err(|e| e.to_string())?;
@@ -96,6 +103,16 @@ impl TextAssets {
                 font,
             );
         }
+        if let Some(fallback) = out
+            .fonts
+            .iter()
+            .find(|(_, f)| f.foreground.is_none())
+            .map(|(_, f)| f.clone())
+        {
+            for id in unresolved {
+                out.fonts.insert(id, fallback.clone());
+            }
+        }
         for c in json["characters"].as_array().unwrap() {
             if c["type_name"] == "font" && c["font"]["name"] == "Futura Shadow" {
                 let foreground = json["characters"].as_array().unwrap().iter().find(|f|
@@ -118,6 +135,32 @@ impl TextAssets {
             .cloned()
             .unwrap_or_else(|| text.into())
     }
+}
+/// Skate's strings use '^' for a line break. Word-wrapped fields break at
+/// spaces within `width`; a single word wider than the field keeps its line.
+pub fn lines(font: &Font, text: &str, height: f32, wrap: Option<f32>) -> Vec<String> {
+    let mut out = Vec::new();
+    for paragraph in text.split(['^', '\n']) {
+        let Some(width) = wrap else {
+            out.push(paragraph.to_owned());
+            continue;
+        };
+        let mut line = String::new();
+        for word in paragraph.split(' ') {
+            let candidate = if line.is_empty() {
+                word.to_owned()
+            } else {
+                format!("{line} {word}")
+            };
+            if !line.is_empty() && font.width(&candidate, height) > width {
+                out.push(std::mem::replace(&mut line, word.to_owned()));
+            } else {
+                line = candidate;
+            }
+        }
+        out.push(line);
+    }
+    out
 }
 impl Font {
     pub fn glyph(&self, c: char) -> Option<&Glyph> {

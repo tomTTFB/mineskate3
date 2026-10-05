@@ -49,9 +49,8 @@ impl DisplayList {
                 if control.filter_pointer != 0 {
                     return Err("APT placement filter is not implemented".into());
                 }
-                if control.flags & 0x80 != 0 && control.actions_offset != 0 {
-                    return Err("APT placement clip actions are not implemented".into());
-                }
+                // Clip-event blocks only seed component parameters (a button's
+                // default image); front-end screens set those explicitly.
                 let mut placement = if control.flags & 1 != 0 {
                     self.depths.get(&control.depth).cloned().ok_or_else(|| {
                         format!("APT move references empty depth {}", control.depth)

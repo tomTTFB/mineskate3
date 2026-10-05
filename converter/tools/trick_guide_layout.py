@@ -24,7 +24,7 @@ ACTION_STRIDE = 1_000_000
 # which value (see find_trick_guide.py). Grind gestures are drawn as their
 # frontside form, as the original movie only ships those.
 GESTURES = {
-    1: 'grind_fs_5_0', 2: 'grind_fs_salad', 3: 'grind_fs_bluntslide', 4: 'grind_fs_boardslide',
+    1: 'grind_5_0_grind', 2: 'grind_fs_5_0', 3: 'grind_fs_bluntslide', 4: 'grind_fs_boardslide',
     5: 'grind_fs_crooks', 6: 'grind_fs_lipslide', 7: 'grind_fs_noseblunt', 8: 'grind_fs_overcrooks',
     9: 'grind_fs_salad', 10: 'grind_fs_noseslide', 11: 'grind_fs_tailslide', 12: 'grind_nose_grind',
     13: 'grind_fs_feeble', 14: 'grind_fs_smith', 15: 'grind_fs_willie', 16: 'grind_fs_overwillie',
@@ -198,7 +198,7 @@ def build_menu(data, language):
 
     top = []
     for name, description, keys in TOP:
-        top.append({'name': name, 'description': description,
+        top.append({'name': name, 'description': description if description in language else '',
                     'children': [category(k) for k in keys if groups.get(k)]})
     others = [r for r in records if r['name'] in OTHER_TRICKS and r['clip']]
     seen, other_leaves = set(), []
