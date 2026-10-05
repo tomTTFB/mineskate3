@@ -281,11 +281,16 @@ def prepare(game: Path, assets: Path, work: Path, collections: Path):
 
     shutil.rmtree(target, ignore_errors=True)
     (target / 'runtime').mkdir(parents=True)
+    lines = []
+    for n in names:
+        listing(n, libraries[n], lines)
+    (target / 'trickguide-actions.txt').write_text('\n'.join(lines) + '\n', encoding='utf-8')
     # Shape and font textures are written by the cache; copy the ones used.
     for lib in libraries.values():
         for primitives in lib['shapes'].values():
             for p in primitives:
-                copy_texture(cache_root, target, p['texture']['rgba'])
+                if p['texture']:  # Solid fills carry only a colour.
+                    copy_texture(cache_root, target, p['texture']['rgba'])
     for asset in fonts.values():
         if asset:
             copy_texture(cache_root, target, asset['texture'])
@@ -295,10 +300,6 @@ def prepare(game: Path, assets: Path, work: Path, collections: Path):
     (target / 'tricks.json').write_text(json.dumps(data, indent=1) + '\n', encoding='utf-8')
     clip_names = clips(game, target / 'clips')
 
-    lines = []
-    for n in names:
-        listing(n, libraries[n], lines)
-    (target / 'trickguide-actions.txt').write_text('\n'.join(lines) + '\n', encoding='utf-8')
     print(f'Trick guide: {len(names)} movie(s), {len(data["records"])} trick records, '
           f'{len(clip_names)} demo clips: {target}', flush=True)
     for lib in libraries.values():
@@ -315,8 +316,14 @@ def copy_texture(cache_root, target, relative):
         raise ValueError(f'Texture path escapes the cache: {relative}')
     destination = target / relative
     destination.parent.mkdir(parents=True, exist_ok=True)
-    if not destination.exists():
+    if destination.exists():
+        return True
+    try:
         shutil.copyfile(source, destination)
+    except OSError as error:
+        print(f'WARNING: trick guide texture {relative}: {error}', flush=True)
+        return False
+    return True
 
 
 if __name__ == '__main__':
