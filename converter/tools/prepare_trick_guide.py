@@ -233,6 +233,24 @@ def tricks(collections):
             'camera_tracks': cameras}
 
 
+PARK = ('data/content/world/models/dist_trickguide.rx2',
+        'data/content/world/models/dist_trickguide_textures.rx2')
+
+
+def park_sources(game, destination):
+    """The demo set's model and texture dictionary, as the disc ships them."""
+    archive = BigArchive(game / 'data' / 'big' / 'miscload.big')
+    destination.mkdir(parents=True, exist_ok=True)
+    found = []
+    for e in archive.entries:
+        path = e.path.replace('\\', '/').lower()
+        if path in PARK:
+            (destination / Path(path).name).write_bytes(archive.read(e))
+            found.append(path)
+    if len(found) != len(PARK):
+        raise ValueError(f'Trick guide set missing from miscload.big: {sorted(set(PARK) - set(found))}')
+
+
 def clips(game, destination):
     archive = BigArchive(game / 'data' / 'big' / 'scene.big')
     entries = [e for e in archive.entries if e.path.replace('\\', '/').lower().startswith(CLIPS)
@@ -304,6 +322,7 @@ def prepare(game: Path, assets: Path, work: Path, collections: Path):
     # One character table and the menu tree, as the runtime plays them.
     trick_guide_layout.upgrade(target)
     clip_names = clips(game, target / 'clips')
+    park_sources(game, target / 'park' / 'source')
 
     print(f'Trick guide: {len(names)} movie(s), {len(data["records"])} trick records, '
           f'{len(clip_names)} demo clips: {target}', flush=True)
