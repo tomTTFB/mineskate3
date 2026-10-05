@@ -38,6 +38,9 @@ import org.lwjgl.glfw.GLFW;
 public final class MineSkate3Client {
     public static final KeyMapping TOGGLE = new KeyMapping("key.mineskate3.toggle",
             InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_J, "key.categories.mineskate3");
+    public static final KeyMapping TRICK_GUIDE = new KeyMapping("key.mineskate3.trick_guide",
+            InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_G, "key.categories.mineskate3");
+    private int lastPadButtons;
 
     /** Survival HUD pieces that make no sense on a board; Skate 3 shows only its own. */
     private static final Set<ResourceLocation> HIDDEN_WHILE_SKATING = Set.of(
@@ -82,6 +85,7 @@ public final class MineSkate3Client {
 
     private void onRegisterKeys(RegisterKeyMappingsEvent event) {
         event.register(TOGGLE);
+        event.register(TRICK_GUIDE);
     }
 
     /** While skating, keys Skate uses must not also open the inventory, drop items and so on. */
@@ -109,6 +113,19 @@ public final class MineSkate3Client {
             if (mc.screen == null) {
                 SkateSession.get().toggle();
             }
+        }
+        while (TRICK_GUIDE.consumeClick()) {
+            if (mc.screen == null) {
+                TrickGuideScreen.open();
+            }
+        }
+        // Back/View on a controller opens the guide while skating, as Skate's pause menu reaches it.
+        PadInput pad = SkateSession.get().pad();
+        int pressed = pad.buttons & ~lastPadButtons;
+        lastPadButtons = pad.buttons;
+        if (SkateSession.get().active() && mc.screen == null && pad.controllerName != null
+                && (pressed & PadInput.BACK) != 0) {
+            TrickGuideScreen.open();
         }
         SkateSession.get().tick();
     }

@@ -13,7 +13,7 @@ import java.util.Locale;
  * Implemented in native/crates/skate-mc/src/lib.rs.
  */
 public final class NativeSkate {
-    public static final int ABI_VERSION = 4;
+    public static final int ABI_VERSION = 5;
 
     public static final int STATUS_LOADING = 0;
     public static final int STATUS_READY = 1;
@@ -170,4 +170,31 @@ public final class NativeSkate {
 
     /** Skate 3's own XInput reader (Windows): see PadInput. */
     static native int pollXInput(int[] out);
+
+    /** Opens the Trick Guide from its converted folder; throws IllegalStateException on failure. */
+    static native long guideOpen(String root, boolean regular);
+
+    static native void guideFree(long guide);
+
+    /** 0 up, 1 down, 2 select, 3 back; false once the guide has failed. */
+    static native boolean guideInput(long guide, int nav);
+
+    /** One movie frame; false once the guide has failed (see guideError). */
+    static native boolean guideUpdate(long guide);
+
+    /** Plays the outro; guideClosed turns true when it ends. */
+    static native void guideClose(long guide);
+
+    static native boolean guideClosed(long guide);
+
+    static native String guideError(long guide);
+
+    /** The highlighted entry's demo animation, or "". */
+    static native String guideClip(long guide);
+
+    /** Texture files relative to the trick guide folder, as "path|width|height". */
+    static native String[] guideTextures(long guide);
+
+    /** Like hudDraws, for the guide's last frame. */
+    static native int guideDraws(long guide, float[] out);
 }

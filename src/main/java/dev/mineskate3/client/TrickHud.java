@@ -13,6 +13,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.renderer.ShaderInstance;
 import net.minecraft.client.renderer.texture.DynamicTexture;
@@ -168,6 +169,27 @@ public final class TrickHud {
         if (length <= 0) {
             return;
         }
+        drawList(graphics, draws, length, textures, session.pad().controllerName != null);
+    }
+
+    /** Controller buttons, in the native draw list's order (hud::BUTTONS). */
+    private static final String[] BUTTONS = {"A", "B", "X", "Y", "L_Trigger", "R_Trigger", "L_Bumper",
+            "R_Bumper", "Stick_Left", "Stick_Right", "Stick_Right_Up", "Stick_Right_Down", "Stick_Right_L",
+            "Stick_Right_R", "Start", "Back"};
+    private static final String[] PAD_LABELS = {"A", "B", "X", "Y", "LT", "RT", "LB", "RB", "LS", "RS",
+            "RS\u2191", "RS\u2193", "RS\u2190", "RS\u2192", "START", "BACK"};
+    /** The keys PadInput maps to each button for keyboard and mouse players. */
+    private static final String[] KEY_LABELS = {"Space", "R", "Shift", "F", "LMB", "RMB", "Q", "E", "WASD",
+            "Mouse", "Mouse\u2191", "Mouse\u2193", "Mouse\u2190", "Mouse\u2192", "Esc", "Tab"};
+    private static final int[] BUTTON_COLOURS = {0xFF4E9F3D, 0xFFC8392B, 0xFF2F6FBF, 0xFFD9A21B};
+
+    /**
+     * Draws an APT draw list (see hud::encode_draws) stretched from the
+     * 1280x720 stage: texture index -1 is a solid fill, -2 - n controller
+     * button n, which the original engine draws natively; here a labelled badge.
+     */
+    static void drawList(GuiGraphics graphics, float[] draws, int length, ResourceLocation[] textures,
+            boolean controller) {
         if (!begin(graphics)) {
             return;
         }
@@ -176,6 +198,7 @@ public final class TrickHud {
         Matrix4f matrix = new Matrix4f(graphics.pose().last().pose()).scale(sx, sy, 1f);
         float[] multiply = new float[4];
         float[] add = new float[4];
+        java.util.List<float[]> buttons = new java.util.ArrayList<>();
         int at = 0;
         while (at + 10 <= length) {
             int texture = (int) draws[at];
@@ -185,13 +208,50 @@ public final class TrickHud {
             if (next > length) {
                 break;
             }
-            if (texture >= 0 && texture < textures.length && textures[texture] != null && vertices >= 3) {
-                System.arraycopy(draws, at + 2, multiply, 0, 4);
-                System.arraycopy(draws, at + 6, add, 0, 4);
+            System.arraycopy(draws, at + 2, multiply, 0, 4);
+            System.arraycopy(draws, at + 6, add, 0, 4);
+            if (texture <= -2 && vertices >= 3) {
+                float x0 = Float.MAX_VALUE, y0 = Float.MAX_VALUE, x1 = -Float.MAX_VALUE, y1 = -Float.MAX_VALUE;
+                for (int v = 0; v < vertices; v++) {
+                    x0 = Math.min(x0, draws[start + v * 4]);
+                    x1 = Math.max(x1, draws[start + v * 4]);
+                    y0 = Math.min(y0, draws[start + v * 4 + 1]);
+                    y1 = Math.max(y1, draws[start + v * 4 + 1]);
+                }
+                buttons.add(new float[] {-2 - texture, x0 * sx, y0 * sy, x1 * sx, y1 * sy, multiply[3]});
+            } else if (texture == -1 && vertices >= 3) {
+                triangles(matrix, white(), multiply, add, draws, start, vertices);
+            } else if (texture >= 0 && texture < textures.length && textures[texture] != null && vertices >= 3) {
                 triangles(matrix, textures[texture], multiply, add, draws, start, vertices);
             }
             at = next;
         }
         end();
+        for (float[] b : buttons) {
+            badge(graphics, (int) b[0], b[1], b[2], b[3], b[4], b[5], controller);
+        }
+    }
+
+    private static void badge(GuiGraphics graphics, int button, float x0, float y0, float x1, float y1,
+            float alpha, boolean controller) {
+        if (button < 0 || button >= BUTTONS.length || alpha <= 0.05f) {
+            return;
+        }
+        Font font = Minecraft.getInstance().font;
+        String label = (controller ? PAD_LABELS : KEY_LABELS)[button];
+        int colour = button < BUTTON_COLOURS.length ? BUTTON_COLOURS[button] : 0xFF2A2A2A;
+        float cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+        float height = Math.max(4f, y1 - y0);
+        float scale = Math.min(1.5f, height / 11f);
+        float width = Math.max(height, font.width(label) * scale + 4 * scale);
+        int left = Math.round(cx - width / 2), right = Math.round(cx + width / 2);
+        int top = Math.round(cy - height / 2), bottom = Math.round(cy + height / 2);
+        graphics.fill(left - 1, top - 1, right + 1, bottom + 1, 0xFF101010);
+        graphics.fill(left, top, right, bottom, colour);
+        graphics.pose().pushPose();
+        graphics.pose().translate(cx - font.width(label) * scale / 2f, cy - 4 * scale, 0);
+        graphics.pose().scale(scale, scale, 1f);
+        graphics.drawString(font, label, 0, 0, 0xFFFFFFFF, false);
+        graphics.pose().popPose();
     }
 }

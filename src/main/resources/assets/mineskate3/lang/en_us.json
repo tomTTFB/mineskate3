@@ -1,6 +1,8 @@
 {
   "key.categories.mineskate3": "MineSkate 3",
   "key.mineskate3.toggle": "Toggle Skate 3 mode",
+  "key.mineskate3.trick_guide": "Open the Trick Guide",
+  "screen.mineskate3.trick_guide": "Trick Guide",
   "mineskate3.setup.title": "Skate 3 setup",
   "subtitles.mineskate3.roll": "Skateboard rolls",
   "subtitles.mineskate3.grind": "Skateboard grinds",
