@@ -13,7 +13,7 @@ import java.util.Locale;
  * Implemented in native/crates/skate-mc/src/lib.rs.
  */
 public final class NativeSkate {
-    public static final int ABI_VERSION = 4;
+    public static final int ABI_VERSION = 5;
 
     public static final int STATUS_LOADING = 0;
     public static final int STATUS_READY = 1;
@@ -122,13 +122,17 @@ public final class NativeSkate {
 
     static native String state(long handle);
 
-    static native void collision(long handle, float[] triangles, int count,
-            float minX, float minZ, float maxX, float maxZ);
+    /** `noLip`: one byte per triangle, nonzero where its edges are never grind lips.
+     *  `rails`: 3 floats per point, `railPoints[i]` points for rail i. */
+    static native void collision(long handle, float[] triangles, int count, byte[] noLip,
+            float[] rails, int[] railPoints, float minX, float minZ, float maxX, float maxZ);
 
     static native void activate(long handle, float x, float y, float z, float heading, float aspect);
 
+    /** `drag`, `glide` and `bounce` describe the block under the board (see {@link Surfaces}). */
     static native void step(long handle, float dt, boolean connected, int buttons,
-            int leftTrigger, int rightTrigger, int lx, int ly, int rx, int ry, float aspect);
+            int leftTrigger, int rightTrigger, int lx, int ly, int rx, int ry,
+            float drag, float glide, float bounce, float aspect);
 
     static native void suspend(long handle);
 
@@ -170,4 +174,7 @@ public final class NativeSkate {
 
     /** Skate 3's own XInput reader (Windows): see PadInput. */
     static native int pollXInput(int[] out);
+
+    /** XInput pad `slot`'s low and high frequency motors, 0..65535 (Windows only). */
+    static native boolean xinputRumble(int slot, int left, int right);
 }

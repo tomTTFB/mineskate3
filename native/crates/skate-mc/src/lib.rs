@@ -12,10 +12,10 @@ use jni::objects::{JByteArray, JClass, JFloatArray, JIntArray, JString};
 use jni::sys::{jboolean, jbyteArray, jfloat, jint, jintArray, jlong, jstring};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Mutex;
-use worker::{Host, Pad, Status, Triangle};
+use worker::{Blocks, Host, Pad, Status};
 
 /// Bumped when the Java-facing contract changes; the mod refuses a mismatch.
-pub const ABI_VERSION: jint = 4;
+pub const ABI_VERSION: jint = 5;
 
 fn guard<T>(fallback: T, f: impl FnOnce() -> T) -> T {
     catch_unwind(AssertUnwindSafe(f)).unwrap_or(fallback)
@@ -121,8 +121,11 @@ pub extern "system" fn Java_dev_mineskate3_client_NativeSkate_state(
 }
 
 /// Replaces the collision around the skater: `triangles` holds 9 floats per
-/// triangle, counterclockwise seen from outside, in session space. Rails are
-/// only kept strictly inside the x/z box `min_x, min_z, max_x, max_z`.
+/// triangle, counterclockwise seen from outside, in session space, and
+/// `no_lip` one byte per triangle, nonzero where its edges must never become
+/// grind lips. `rails` holds `rail_points` points (3 floats each) per extra
+/// rail. Found lips are only kept strictly inside the x/z box `min_x, min_z,
+/// max_x, max_z`.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_dev_mineskate3_client_NativeSkate_collision(
     env: JNIEnv,
@@ -130,23 +133,70 @@ pub extern "system" fn Java_dev_mineskate3_client_NativeSkate_collision(
     handle: jlong,
     triangles: JFloatArray,
     count: jint,
+    no_lip: JByteArray,
+    rails: JFloatArray,
+    rail_points: JIntArray,
     min_x: jfloat,
     min_z: jfloat,
     max_x: jfloat,
     max_z: jfloat,
 ) {
     let Some(host) = host(handle) else { return };
-    let floats = (count.max(0) as usize) * 9;
-    let mut data = vec![0.0f32; floats];
+    let count = count.max(0) as usize;
+    let mut data = vec![0.0f32; count * 9];
     if env.get_float_array_region(&triangles, 0, &mut data).is_err() {
         return;
     }
-    let tris: Vec<Triangle> = data
-        .chunks_exact(9)
-        .map(|t| [[t[0], t[1], t[2]], [t[3], t[4], t[5]], [t[6], t[7], t[8]]])
-        .filter(|t| t.iter().flatten().all(|v| v.is_finite()))
-        .collect();
-    guard((), || host.collision(tris, Some([min_x, min_z, max_x, max_z])));
+    let mut flags = vec![0i8; count];
+    if env.get_byte_array_region(&no_lip, 0, &mut flags).is_err() {
+        return;
+    }
+    let Ok(rail_count) = env.get_array_length(&rail_points) else { return };
+    let mut lengths = vec![0 as jint; rail_count.max(0) as usize];
+    if env.get_int_array_region(&rail_points, 0, &mut lengths).is_err() {
+        return;
+    }
+    let total: usize = lengths.iter().map(|&n| n.max(0) as usize).sum();
+    let mut points = vec![0.0f32; total * 3];
+    if env.get_float_array_region(&rails, 0, &mut points).is_err() {
+        return;
+    }
+    let blocks = blocks_from(&data, &flags, &points, &lengths, [min_x, min_z, max_x, max_z]);
+    guard((), || host.collision(blocks));
+}
+
+/// Unpacks `collision`'s arrays, dropping non-finite triangles and rails.
+pub fn blocks_from(
+    triangles: &[f32],
+    no_lip: &[i8],
+    points: &[f32],
+    rail_points: &[jint],
+    inside: [f32; 4],
+) -> Blocks {
+    let mut blocks = Blocks {
+        inside: Some(inside),
+        ..Blocks::default()
+    };
+    for (i, t) in triangles.chunks_exact(9).enumerate() {
+        if t.iter().all(|v| v.is_finite()) {
+            blocks
+                .triangles
+                .push([[t[0], t[1], t[2]], [t[3], t[4], t[5]], [t[6], t[7], t[8]]]);
+            blocks.no_lip.push(no_lip.get(i).is_some_and(|&f| f != 0));
+        }
+    }
+    let mut at = 0;
+    for &n in rail_points {
+        let n = n.max(0) as usize;
+        let Some(flat) = points.get(at * 3..(at + n) * 3) else { break };
+        at += n;
+        if n >= 2 && flat.iter().all(|v| v.is_finite()) {
+            blocks
+                .rails
+                .push(flat.chunks_exact(3).map(|p| [p[0], p[1], p[2]]).collect());
+        }
+    }
+    blocks
 }
 
 #[unsafe(no_mangle)]
@@ -166,7 +216,8 @@ pub extern "system" fn Java_dev_mineskate3_client_NativeSkate_activate(
 }
 
 /// One rendered frame of input. `connected` false sends a disconnected pad.
-/// Sticks are XInput signed shorts (y up), triggers 0..255.
+/// Sticks are XInput signed shorts (y up), triggers 0..255. `drag`, `glide`
+/// and `bounce` describe the block under the board (see `bridge::Surface`).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_dev_mineskate3_client_NativeSkate_step(
     _env: JNIEnv,
@@ -181,9 +232,18 @@ pub extern "system" fn Java_dev_mineskate3_client_NativeSkate_step(
     ly: jint,
     rx: jint,
     ry: jint,
+    drag: jfloat,
+    glide: jfloat,
+    bounce: jfloat,
     aspect: jfloat,
 ) {
     let Some(host) = host(handle) else { return };
+    let finite = |v: jfloat, max: f32| if v.is_finite() { v.clamp(0.0, max) } else { 0.0 };
+    let surface = skate_host::bridge::Surface {
+        drag: finite(drag, 10.0),
+        glide: finite(glide, 0.95),
+        bounce: finite(bounce, 0.9),
+    };
     let axis = |v: jint| v.clamp(-32768, 32767) as i16;
     let trigger = |v: jint| v.clamp(0, 255) as u8;
     let pad = (connected != 0).then(|| Pad {
@@ -192,7 +252,7 @@ pub extern "system" fn Java_dev_mineskate3_client_NativeSkate_step(
         left: [axis(lx), axis(ly)],
         right: [axis(rx), axis(ry)],
     });
-    guard((), || host.step(dt.clamp(0.0, 0.1), pad, aspect));
+    guard((), || host.step(dt.clamp(0.0, 0.1), pad, surface, aspect));
 }
 
 #[unsafe(no_mangle)]
@@ -446,6 +506,46 @@ pub extern "system" fn Java_dev_mineskate3_client_NativeSkate_pollXInput(
     slot as jint
 }
 
+/// Sets XInput pad `slot`'s low (left) and high (right) frequency motors,
+/// 0..65535 (Windows only; elsewhere does nothing). Returns false on failure.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_mineskate3_client_NativeSkate_xinputRumble(
+    _env: JNIEnv,
+    _class: JClass,
+    slot: jint,
+    left: jint,
+    right: jint,
+) -> jboolean {
+    if !(0..4).contains(&slot) {
+        return 0;
+    }
+    let motor = |v: jint| v.clamp(0, 65535) as u16;
+    jboolean::from(guard(false, || rumble::set(slot as u32, motor(left), motor(right))))
+}
+
+mod rumble {
+    #[cfg(windows)]
+    pub fn set(slot: u32, left: u16, right: u16) -> bool {
+        #[repr(C)]
+        struct Vibration {
+            left: u16,
+            right: u16,
+        }
+        #[link(name = "xinput")]
+        unsafe extern "system" {
+            fn XInputSetState(index: u32, vibration: *mut Vibration) -> u32;
+        }
+        let mut vibration = Vibration { left, right };
+        // SAFETY: a valid XINPUT_VIBRATION for the call's duration.
+        unsafe { XInputSetState(slot, &mut vibration) == 0 }
+    }
+
+    #[cfg(not(windows))]
+    pub fn set(_slot: u32, _left: u16, _right: u16) -> bool {
+        false
+    }
+}
+
 /// 1 the original trick HUD runs, 0 its data is missing, -1 it failed.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_dev_mineskate3_client_NativeSkate_hudStatus(
@@ -510,4 +610,45 @@ pub extern "system" fn Java_dev_mineskate3_client_NativeSkate_hudDraws(
         return 0;
     }
     data.len() as jint
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn blocks_keep_flags_aligned_and_split_rails() {
+        let mut triangles = vec![0.0f32; 27];
+        triangles[9] = f32::NAN; // the second triangle is dropped
+        triangles[18] = 1.0;
+        let blocks = blocks_from(
+            &triangles,
+            &[0, 1, 1],
+            &[0., 1., 0., 2., 1., 0., 5., 1., 5., 5., 1., 6., 5., 1., 7.],
+            &[2, 3],
+            [-1., -1., 1., 1.],
+        );
+        assert_eq!(blocks.triangles.len(), 2);
+        assert_eq!(blocks.no_lip, vec![false, true]);
+        assert_eq!(blocks.rails.len(), 2);
+        assert_eq!(blocks.rails[1], vec![[5., 1., 5.], [5., 1., 6.], [5., 1., 7.]]);
+    }
+
+    #[test]
+    fn short_rail_arrays_stop_cleanly() {
+        let blocks = blocks_from(&[], &[], &[0., 1., 0.], &[2, 4], [0.; 4]);
+        assert!(blocks.rails.is_empty());
+    }
+
+    #[test]
+    fn supplied_rails_join_found_lips() {
+        let blocks = Blocks {
+            triangles: vec![[[0.; 3], [0., 0., 1.], [1., 0., 1.]]],
+            no_lip: vec![true],
+            rails: vec![vec![[0., 1., 0.], [3., 1., 0.]], vec![[0., 0., 0.]]],
+            inside: None,
+        };
+        let rails = worker::all_rails(&blocks);
+        assert_eq!(rails, vec![vec![[0., 1., 0.], [3., 1., 0.]]]);
+    }
 }

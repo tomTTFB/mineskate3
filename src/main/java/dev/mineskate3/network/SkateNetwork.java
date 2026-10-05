@@ -150,11 +150,25 @@ public final class SkateNetwork {
         }
     }
 
+    /** Server to client: stop skating (not allowed here, or a movement check failed). */
+    public record Stop(String reason) implements CustomPacketPayload {
+        public static final Type<Stop> TYPE = new Type<>(id("stop"));
+        public static final StreamCodec<ByteBuf, Stop> CODEC =
+                ByteBufCodecs.stringUtf8(256).map(Stop::new, Stop::reason);
+
+        @Override
+        public Type<Stop> type() {
+            return TYPE;
+        }
+    }
+
     /** Where the client side of the relay lands; set by the client entry point. */
     public interface ClientHandler {
         void remoteState(RemoteState state);
 
         void remotePose(RemotePose pose);
+
+        void stopped(Stop stop);
     }
 
     private static volatile ClientHandler clientHandler;
@@ -164,7 +178,7 @@ public final class SkateNetwork {
     }
 
     public static void register(RegisterPayloadHandlersEvent event) {
-        PayloadRegistrar registrar = event.registrar("2").optional();
+        PayloadRegistrar registrar = event.registrar("3").optional();
         registrar.playToServer(State.TYPE, State.CODEC,
                 (payload, context) -> context.enqueueWork(() -> SkateServer.onState(context.player(), payload.skating())));
         registrar.playToServer(Pose.TYPE, Pose.CODEC,
@@ -180,6 +194,12 @@ public final class SkateNetwork {
             ClientHandler handler = clientHandler;
             if (handler != null) {
                 handler.remotePose(payload);
+            }
+        }));
+        registrar.playToClient(Stop.TYPE, Stop.CODEC, (payload, context) -> context.enqueueWork(() -> {
+            ClientHandler handler = clientHandler;
+            if (handler != null) {
+                handler.stopped(payload);
             }
         }));
     }

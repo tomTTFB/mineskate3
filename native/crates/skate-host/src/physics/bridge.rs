@@ -55,6 +55,23 @@ pub struct Status {
     pub markers_placed: u64,
     pub markers_returned: u64,
 }
+/// How the block under the wheels changes the ride. Skate's collision has a
+/// single material, so these act on the bodies after each tick instead.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Surface {
+    /// Extra horizontal drag, per second (0 for none).
+    pub drag: f32,
+    /// Share of the tick's horizontal speed loss handed back (0 none, ice ~0.8).
+    pub glide: f32,
+    /// Share of the landing speed returned upwards on touchdown (0 none).
+    pub bounce: f32,
+}
+/// Deck velocity and wheel contact before a tick, for `Session::apply_surface`.
+#[derive(Clone, Copy, Debug)]
+pub struct SurfaceSample {
+    velocity: skate_core::math::Vector3,
+    grounded: bool,
+}
 pub struct Pose {
     pub root: Mat4,
     pub bones: Vec<Mat4>,
@@ -208,6 +225,61 @@ impl Session {
             markers_placed: placed,
             markers_returned: returned,
         }
+    }
+    pub fn surface_sample(&self) -> SurfaceSample {
+        SurfaceSample {
+            velocity: self.physics.board.bodies()[skate_core::physics::board::BodyId::Deck.index()]
+                .rates
+                .linear_velocity,
+            grounded: self.physics.riding.ground.wheel_contact_count > 0,
+        }
+    }
+    /// Applies `surface` to the tick that ran since `before` was sampled:
+    /// only while wheels touch and the skater is not bailing. Board and
+    /// skeleton bodies move together, as the engine's own impulses do.
+    pub fn apply_surface(&mut self, before: SurfaceSample, surface: Surface) {
+        if surface == Surface::default()
+            || self.physics.board_wiping_out
+            || self.physics.riding.ground.wheel_contact_count == 0
+        {
+            return;
+        }
+        let deck = self.physics.board.bodies()[skate_core::physics::board::BodyId::Deck.index()]
+            .rates
+            .linear_velocity;
+        let speed = deck.x.hypot(deck.z);
+        let was = before.velocity.x.hypot(before.velocity.z);
+        let mut scale = 1.0f32;
+        if speed > 1e-3 {
+            let mut target = speed;
+            if surface.glide > 0. && was > speed {
+                target += surface.glide.clamp(0., 0.95) * (was - speed);
+            }
+            target *= (-surface.drag.max(0.) * self.period()).exp();
+            scale = target / speed;
+        }
+        let landing = -before.velocity.y;
+        let lift = (surface.bounce > 0. && !before.grounded && landing > 2.)
+            .then(|| landing * surface.bounce.min(0.9));
+        if scale == 1. && lift.is_none() {
+            return;
+        }
+        let adjust = |body: &mut skate_core::physics::assembly::BodySnapshot| {
+            let v = &mut body.rates.linear_velocity;
+            v.x *= scale;
+            v.z *= scale;
+            if let Some(up) = lift {
+                v.y = v.y.max(up);
+            }
+        };
+        let board = self.physics.board.bodies_mut();
+        board.iter_mut().for_each(adjust);
+        // Wheels keep rolling at the new speed.
+        for wheel in &mut board[..4] {
+            let w = &mut wheel.rates.angular_velocity;
+            *w = skate_core::math::Vector3::new(w.x * scale, w.y * scale, w.z * scale);
+        }
+        self.skater.skeleton.bodies_mut().iter_mut().for_each(adjust);
     }
     pub fn scoring(&self) -> ScoringHud {
         self.skater.scoring.hud()

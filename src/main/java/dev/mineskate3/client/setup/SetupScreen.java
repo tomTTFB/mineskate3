@@ -70,15 +70,20 @@ public final class SetupScreen extends Screen {
                 .bounds(x, y + 26, (w - 8) / 2, 20).build());
         install = addRenderableWidget(Button.builder(Component.literal("Install numpy + Pillow"), b -> startInstall())
                 .bounds(x + (w + 8) / 2, y + 26, (w - 8) / 2, 20).build());
-        int bw = Math.min(150, (w - 8) / 2);
+        int bw = Math.min(140, (w - 16) / 3);
+        int row = this.width / 2 - bw - bw / 2 - 8;
         addRenderableWidget(Button.builder(skaterLabel(), b -> {
             SkateSettings.setSkate3Skater(!SkateSettings.skate3Skater());
             b.setMessage(skaterLabel());
-        }).bounds(this.width / 2 - bw - 4, this.height - 52, bw, 20).build());
+        }).bounds(row, this.height - 52, bw, 20).build());
         addRenderableWidget(Button.builder(soundLabel(), b -> {
             SkateSettings.setSounds(!SkateSettings.sounds());
             b.setMessage(soundLabel());
-        }).bounds(this.width / 2 + 4, this.height - 52, bw, 20).build());
+        }).bounds(row + bw + 8, this.height - 52, bw, 20).build());
+        addRenderableWidget(Button.builder(rumbleLabel(), b -> {
+            SkateSettings.setRumble(!SkateSettings.rumble());
+            b.setMessage(rumbleLabel());
+        }).bounds(row + 2 * (bw + 8), this.height - 52, bw, 20).build());
         addRenderableWidget(Button.builder(Component.literal("Close"), b -> onClose())
                 .bounds((this.width - 120) / 2, this.height - 28, 120, 20).build());
         if (python == null && !probing) {
@@ -93,6 +98,10 @@ public final class SetupScreen extends Screen {
 
     private static Component soundLabel() {
         return Component.literal("Sounds: " + (SkateSettings.sounds() ? "on" : "off"));
+    }
+
+    private static Component rumbleLabel() {
+        return Component.literal("Rumble: " + (SkateSettings.rumble() ? "on" : "off"));
     }
 
     private void refreshButtons() {
