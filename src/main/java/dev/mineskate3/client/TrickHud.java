@@ -119,6 +119,10 @@ public final class TrickHud {
         RenderSystem.enableBlend();
         RenderSystem.defaultBlendFunc();
         RenderSystem.disableDepthTest();
+        // APT geometry comes in either winding, and skate-game's 2D pass draws
+        // both. With culling left on, whole shapes vanish depending on what
+        // GL state the previous draw left behind.
+        RenderSystem.disableCull();
         RenderSystem.setShader(() -> shader);
         return true;
     }
@@ -142,6 +146,7 @@ public final class TrickHud {
     static void end() {
         shader.safeGetUniform("ColorMultiply").set(1f, 1f, 1f, 1f);
         shader.safeGetUniform("ColorAdd").set(0f, 0f, 0f, 0f);
+        RenderSystem.enableCull();
         RenderSystem.enableDepthTest();
         RenderSystem.disableBlend();
     }
