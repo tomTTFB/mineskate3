@@ -3,7 +3,7 @@
 Lists front-end screens and other archive entries whose paths look related
 (trick guide, tips, demos), and English strings that look like the guide's
 text. Nothing is copied or converted; the report is printed and also written
-to trick-guide-report.txt next to this script.
+to trick-guide-report.txt in the current folder.
 
     cd converter/tools
     python find_trick_guide.py --game "path/to/Skate 3"
