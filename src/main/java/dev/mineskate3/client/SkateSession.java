@@ -27,6 +27,9 @@ public final class SkateSession {
     /** Rebuild this often regardless, in case a change slipped past the listeners. */
     private static final long REFRESH_MILLIS = 15000;
 
+    /** Furthest the skate camera may look down, in degrees. */
+    private static final float MAX_CAMERA_PITCH_DOWN = 35f;
+
     public record CameraPose(Vec3 position, float yaw, float pitch, float roll, float fov) {}
 
     private static final SkateSession INSTANCE = new SkateSession();
@@ -372,6 +375,9 @@ public final class SkateSession {
         Vector3f up0 = new Vector3f(right0).cross(forward).normalize();
         float roll = (float) Math.toDegrees(Math.atan2(up.dot(right0), up.dot(up0)));
         float fov = p[NativeSkate.CAMERA_FOV];
+        // The engine aims at the predicted landing during a fall, which after a long drop is
+        // almost straight down. Keep the view readable.
+        pitch = Math.min(pitch, MAX_CAMERA_PITCH_DOWN);
         return new CameraPose(position, yaw, pitch, roll, fov > 1f && fov < 170f ? fov : 70f);
     }
 
