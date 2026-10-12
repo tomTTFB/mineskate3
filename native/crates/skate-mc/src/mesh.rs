@@ -17,6 +17,10 @@ pub const SKATER: usize = 1;
 
 pub struct Surface {
     pub texture: usize,
+    /// The material's glTF alpha mode is not OPAQUE: the texture's alpha cuts
+    /// the surface out (hair). Opaque surfaces ignore alpha, which retail
+    /// cloth textures use for other data.
+    pub masked: bool,
     pub first_vertex: usize,
     pub vertex_count: usize,
     pub first_index: usize,
@@ -95,6 +99,7 @@ impl Meshes {
         for primitive in primitives.as_array().ok_or("mesh has no primitives")? {
             let material = &glb.json["materials"][index(&primitive["material"])?];
             let name = material["name"].as_str().unwrap_or("");
+            let masked = material["alphaMode"].as_str().is_some_and(|m| m != "OPAQUE");
             let mesh = if name.contains("Skate") { &mut board } else { &mut skater };
             let texture = index(&material["pbrMetallicRoughness"]["baseColorTexture"]["index"])?;
             let image = index(&glb.json["textures"][texture]["source"])?;
@@ -135,6 +140,7 @@ impl Meshes {
                 .extend(indices.iter().map(|&i| i + first_vertex as u32));
             mesh.surfaces.push(Surface {
                 texture: mesh.textures.len() - 1,
+                masked,
                 first_vertex,
                 vertex_count: count,
                 first_index,
@@ -368,7 +374,7 @@ mod tests {
             vertex_joints: vec![[joint, 0, 0, 0]],
             weights: vec![[1.0, 0.0, 0.0, 0.0]],
             indices: vec![0, 0, 0],
-            surfaces: vec![Surface { texture: 0, first_vertex: 0, vertex_count: 1, first_index: 0, index_count: 3 }],
+            surfaces: vec![Surface { texture: 0, masked: false, first_vertex: 0, vertex_count: 1, first_index: 0, index_count: 3 }],
             textures: vec![vec![]],
         }
     }

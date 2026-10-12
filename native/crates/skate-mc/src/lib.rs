@@ -361,7 +361,7 @@ pub extern "system" fn Java_dev_mineskate3_client_NativeSkate_meshLayoutHash(
 }
 
 /// Mesh `which` (0 board, 1 skater) layout: [vertexCount, surfaceCount, then
-/// per surface: texture, firstIndex, indexCount]; empty without meshes.
+/// per surface: texture, firstIndex, indexCount, masked (1 cuts out by alpha)]; empty without meshes.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_dev_mineskate3_client_NativeSkate_meshLayout(
     env: JNIEnv,
@@ -374,7 +374,12 @@ pub extern "system" fn Java_dev_mineskate3_client_NativeSkate_meshLayout(
         layout.push(mesh.positions.len() as jint);
         layout.push(mesh.surfaces.len() as jint);
         for s in &mesh.surfaces {
-            layout.extend([s.texture as jint, s.first_index as jint, s.index_count as jint]);
+            layout.extend([
+                s.texture as jint,
+                s.first_index as jint,
+                s.index_count as jint,
+                jint::from(s.masked),
+            ]);
         }
     }
     int_array(env, &layout)

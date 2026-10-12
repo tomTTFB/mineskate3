@@ -28,6 +28,9 @@ public final class SkinnedMeshes {
         float[] vertices;
     }
 
+    /** Ints per surface in the native layout: texture, first index, index count, masked. */
+    private static final int SURFACE_INTS = 4;
+
     private static volatile int loadState = -1; // -1 not started, 0 loading or failed, 1 board, 2 board and skater
     private static volatile boolean loading;
     private static long lastAttempt;
@@ -100,7 +103,8 @@ public final class SkinnedMeshes {
             mesh.textures = new ResourceLocation[surfaces];
             Map<Integer, ResourceLocation> byImage = new HashMap<>();
             for (int s = 0; s < surfaces; s++) {
-                int image = mesh.layout[2 + s * 3];
+                int image = mesh.layout[2 + s * SURFACE_INTS];
+                boolean masked = mesh.layout[5 + s * SURFACE_INTS] != 0;
                 final int w = which;
                 mesh.textures[s] = byImage.computeIfAbsent(image, i -> {
                     ResourceLocation location =
@@ -108,6 +112,9 @@ public final class SkinnedMeshes {
                     try {
                         byte[] bytes = NativeSkate.meshTexture(w, i);
                         NativeImage decoded = NativeImage.read(new ByteArrayInputStream(bytes));
+                        if (!masked) {
+                            opaque(decoded);
+                        }
                         mc.getTextureManager().register(location, new DynamicTexture(decoded));
                         return location;
                     } catch (Exception e) {
@@ -122,6 +129,15 @@ public final class SkinnedMeshes {
         uploaded = true;
         MineSkate3.LOGGER.info("Skate meshes ready: {} bones, skater model {}", boneCount,
                 loadState == 2 ? "available" : "missing");
+    }
+
+    /** Retail cloth textures keep other data in alpha; opaque surfaces must not be cut out by it. */
+    private static void opaque(NativeImage image) {
+        for (int y = 0; y < image.getHeight(); y++) {
+            for (int x = 0; x < image.getWidth(); x++) {
+                image.setPixelRGBA(x, y, image.getPixelRGBA(x, y) | 0xFF000000);
+            }
+        }
     }
 
     /**
@@ -142,8 +158,8 @@ public final class SkinnedMeshes {
         int surfaces = mesh.layout[1];
         float[] d = mesh.vertices;
         for (int s = 0; s < surfaces; s++) {
-            int first = mesh.layout[3 + s * 3];
-            int count = mesh.layout[4 + s * 3];
+            int first = mesh.layout[3 + s * SURFACE_INTS];
+            int count = mesh.layout[4 + s * SURFACE_INTS];
             VertexConsumer consumer = buffers.getBuffer(RenderType.entityCutoutNoCull(mesh.textures[s]));
             for (int i = first; i + 2 < first + count; i += 3) {
                 // Entity render types draw quads: repeat the last corner.
