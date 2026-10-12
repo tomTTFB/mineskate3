@@ -4,7 +4,7 @@ package dev.mineskate3.server;
  * One skater's movement record for {@link SkateGuard}, kept free of
  * Minecraft types. Each server tick feeds in how the player moved and what
  * the world says about it; suspicious ticks add to a score that drains one
- * point a tick, so a moment of jank (a bail into a wall corner, a lag burst)
+ * point a tick, so a moment of jank (a lag burst, a bail)
  * passes and only a pattern stops skating.
  */
 final class MoveCheck {
@@ -12,7 +12,6 @@ final class MoveCheck {
     static final int STOP_SCORE = 20;
     static final int TOO_FAST = 10;
     static final int THROUGH_WALL = 8;
-    static final int IN_WALL = 3;
     /** Ticks of speed a lag burst may deliver at once. */
     static final int BURST_TICKS = 4;
     /** Distance always allowed on top of the speed budget, in blocks. */
@@ -37,11 +36,10 @@ final class MoveCheck {
      * @param dx dy dz this tick's movement, in blocks
      * @param maxPerTick fastest allowed movement per tick, in blocks
      * @param throughWall the path since last tick crossed a solid block
-     * @param inWall the body is inside a solid block now
      * @param grounded anything solid under or beside the skater
      * @param maxAirTicks longest allowed time off the ground without falling
      */
-    Verdict step(double dx, double dy, double dz, double maxPerTick, boolean throughWall, boolean inWall,
+    Verdict step(double dx, double dy, double dz, double maxPerTick, boolean throughWall,
             boolean grounded, int maxAirTicks) {
         boolean odd = false;
         allowance = Math.min(allowance + maxPerTick, maxPerTick * BURST_TICKS);
@@ -53,8 +51,6 @@ final class MoveCheck {
         allowance = Math.max(0, allowance - distance);
         if (throughWall) {
             odd = flag(THROUGH_WALL, "moved through a wall");
-        } else if (inWall) {
-            odd = flag(IN_WALL, "inside a wall");
         }
         airTicks = grounded || dy < -FALLING ? 0 : airTicks + 1;
         if (airTicks > maxAirTicks) {

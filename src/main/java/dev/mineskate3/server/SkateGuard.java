@@ -72,9 +72,8 @@ public final class SkateGuard {
         double maxPerTick = SkateConfig.get(SkateConfig.MAX_SPEED) / 20.0;
         int maxAir = (int) Math.round(SkateConfig.get(SkateConfig.MAX_AIR_SECONDS) * 20.0);
         boolean through = crossesSolid(level, s.last, now);
-        boolean inside = !through && bodyInSolid(level, now);
         MoveCheck.Verdict verdict = s.check.step(now.x - s.last.x, now.y - s.last.y, now.z - s.last.z, maxPerTick,
-                through, inside, grounded(level, now), maxAir);
+                through, grounded(level, now), maxAir);
         s.last = now;
         switch (verdict) {
             case OK -> s.good = now;

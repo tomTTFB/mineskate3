@@ -12,7 +12,7 @@ class MoveCheckTest {
     void steadySkatingAtTopSpeedPasses() {
         MoveCheck check = new MoveCheck();
         for (int i = 0; i < 200; i++) {
-            assertEquals(MoveCheck.Verdict.OK, check.step(MAX, 0, 0, MAX, false, false, true, AIR));
+            assertEquals(MoveCheck.Verdict.OK, check.step(MAX, 0, 0, MAX, false, true, AIR));
         }
     }
 
@@ -20,10 +20,10 @@ class MoveCheckTest {
     void aLagBurstPasses() {
         MoveCheck check = new MoveCheck();
         for (int i = 0; i < 10; i++) {
-            check.step(0, 0, 0, MAX, false, false, true, AIR);
+            check.step(0, 0, 0, MAX, false, true, AIR);
         }
         // Three ticks of movement arriving in one.
-        assertEquals(MoveCheck.Verdict.OK, check.step(3 * MAX, 0, 0, MAX, false, false, true, AIR));
+        assertEquals(MoveCheck.Verdict.OK, check.step(3 * MAX, 0, 0, MAX, false, true, AIR));
     }
 
     @Test
@@ -31,7 +31,7 @@ class MoveCheckTest {
         MoveCheck check = new MoveCheck();
         MoveCheck.Verdict verdict = MoveCheck.Verdict.OK;
         for (int i = 0; i < 10 && verdict != MoveCheck.Verdict.STOP; i++) {
-            verdict = check.step(3 * MAX, 0, 0, MAX, false, false, true, AIR);
+            verdict = check.step(3 * MAX, 0, 0, MAX, false, true, AIR);
         }
         assertEquals(MoveCheck.Verdict.STOP, verdict);
         assertEquals("moved too fast", check.reason);
@@ -41,16 +41,7 @@ class MoveCheckTest {
     void fallingIsNotSpeeding() {
         MoveCheck check = new MoveCheck();
         for (int i = 0; i < 20; i++) {
-            assertEquals(MoveCheck.Verdict.OK, check.step(0.2, -4, 0, MAX, false, false, false, AIR));
-        }
-    }
-
-    @Test
-    void oneBrushWithAWallIsForgiven() {
-        MoveCheck check = new MoveCheck();
-        assertEquals(MoveCheck.Verdict.SUSPECT, check.step(0.5, 0, 0, MAX, false, true, true, AIR));
-        for (int i = 0; i < 40; i++) {
-            assertEquals(MoveCheck.Verdict.OK, check.step(0.5, 0, 0, MAX, false, false, true, AIR));
+            assertEquals(MoveCheck.Verdict.OK, check.step(0.2, -4, 0, MAX, false, false, AIR));
         }
     }
 
@@ -60,7 +51,7 @@ class MoveCheckTest {
         MoveCheck.Verdict verdict = MoveCheck.Verdict.OK;
         int ticks = 0;
         while (verdict != MoveCheck.Verdict.STOP && ticks < 20) {
-            verdict = check.step(0.5, 0, 0, MAX, true, false, true, AIR);
+            verdict = check.step(0.5, 0, 0, MAX, true, true, AIR);
             ticks++;
         }
         assertEquals(MoveCheck.Verdict.STOP, verdict);
@@ -71,13 +62,13 @@ class MoveCheckTest {
     void hoveringStopsButGroundResetsTheClock() {
         MoveCheck check = new MoveCheck();
         for (int i = 0; i < AIR; i++) {
-            assertEquals(MoveCheck.Verdict.OK, check.step(0.5, 0, 0, MAX, false, false, false, AIR));
+            assertEquals(MoveCheck.Verdict.OK, check.step(0.5, 0, 0, MAX, false, false, AIR));
         }
-        check.step(0.5, 0, 0, MAX, false, false, true, AIR);
+        check.step(0.5, 0, 0, MAX, false, true, AIR);
         for (int i = 0; i < AIR; i++) {
-            assertEquals(MoveCheck.Verdict.OK, check.step(0.5, 0, 0, MAX, false, false, false, AIR));
+            assertEquals(MoveCheck.Verdict.OK, check.step(0.5, 0, 0, MAX, false, false, AIR));
         }
-        assertEquals(MoveCheck.Verdict.STOP, check.step(0.5, 0, 0, MAX, false, false, false, AIR));
+        assertEquals(MoveCheck.Verdict.STOP, check.step(0.5, 0, 0, MAX, false, false, AIR));
         assertEquals("stayed in the air", check.reason);
     }
 }

@@ -48,7 +48,12 @@ public final class SkateServer {
 
     /** Whether this player's client has the mod (negotiated its optional channels). */
     public static boolean hasMod(ServerPlayer player) {
-        return player.connection != null && player.connection.hasChannel(SkateNetwork.RemoteState.TYPE);
+        if (player.connection == null) {
+            return false;
+        }
+        // A memory connection is the integrated server's own client: this same jar.
+        return player.connection.getConnection().isMemoryConnection()
+                || player.connection.hasChannel(SkateNetwork.RemoteState.TYPE);
     }
 
     public static void onState(Player player, boolean skating) {
