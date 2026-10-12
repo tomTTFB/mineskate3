@@ -4,11 +4,13 @@
 //! (apt_*.rs, hud_runtime.rs); only the Bevy rendering is replaced, by a flat
 //! draw list Minecraft renders.
 pub mod apt_display;
+pub mod apt_host;
 pub mod apt_movie;
 pub mod apt_scene;
 pub mod apt_text;
 pub mod apt_vm;
 pub mod hud_runtime;
+pub mod trick_guide;
 
 use apt_vm::Value;
 use skate_host::bridge::ScoringHud;
@@ -121,8 +123,8 @@ impl Hud {
         let shapes: apt_scene::Shapes =
             serde_json::from_value(source["shapes"].clone()).map_err(|e| e.to_string())?;
         let mut files = std::collections::BTreeMap::new();
-        for shape in shapes.values().flatten() {
-            files.insert(shape.texture.rgba.clone(), [shape.texture.width, shape.texture.height]);
+        for texture in shapes.values().flatten().filter_map(|s| s.texture.as_ref()) {
+            files.insert(texture.rgba.clone(), [texture.width, texture.height]);
         }
         for font in runtime.bindings.movie.text_assets.fonts.values() {
             files.insert(font.texture.clone(), font.size);
@@ -166,24 +168,51 @@ impl Hud {
         )
     }
 
-    /// The current frame as a flat list. Per draw: texture index, vertex
-    /// count, multiply rgba, add rgba, then x, y, u, v per vertex (triangle
-    /// list, in the movie's 1280x720 space).
+    /// The current frame as a flat list (see `encode_draws`).
     pub fn draws(&self, out: &mut Vec<f32>) -> Result<(), String> {
-        out.clear();
         let draws = apt_scene::draw(&self.runtime.bindings.movie, &self.runtime.vm, &self.shapes)?;
-        for draw in draws {
-            let Some(&texture) = self.index.get(&draw.texture) else {
+        encode_draws(&draws, &self.index, out);
+        Ok(())
+    }
+}
+
+/// Controller buttons the screens ask the engine to draw, by `_test` name.
+pub const BUTTONS: [&str; 16] = [
+    "A", "B", "X", "Y", "L_Trigger", "R_Trigger", "L_Bumper", "R_Bumper", "Stick_Left",
+    "Stick_Right", "Stick_Right_Up", "Stick_Right_Down", "Stick_Right_L", "Stick_Right_R",
+    "Start", "Back",
+];
+
+/// Flattens draws for the Java renderer. Per draw: texture index (-1 a
+/// solid fill, -2 - n button n of BUTTONS), vertex count, multiply rgba, add
+/// rgba, then x, y, u, v per vertex (triangle list, in the movie's 1280x720
+/// space).
+pub fn encode_draws(
+    draws: &[apt_scene::Draw],
+    index: &HashMap<String, usize>,
+    out: &mut Vec<f32>,
+) {
+    out.clear();
+    for draw in draws {
+        let texture = if let Some(button) = &draw.button {
+            let name = button.trim_end_matches("_hud");
+            let Some(n) = BUTTONS.iter().position(|b| *b == name) else {
                 continue;
             };
-            out.push(texture as f32);
-            out.push(draw.vertices.len() as f32);
-            out.extend_from_slice(&draw.multiply);
-            out.extend_from_slice(&draw.add);
-            for v in &draw.vertices {
-                out.extend_from_slice(&[v.position[0], v.position[1], v.uv[0], v.uv[1]]);
-            }
+            -2.0 - n as f32
+        } else if draw.texture.is_empty() {
+            -1.0
+        } else if let Some(&texture) = index.get(&draw.texture) {
+            texture as f32
+        } else {
+            continue;
+        };
+        out.push(texture);
+        out.push(draw.vertices.len() as f32);
+        out.extend_from_slice(&draw.multiply);
+        out.extend_from_slice(&draw.add);
+        for v in &draw.vertices {
+            out.extend_from_slice(&[v.position[0], v.position[1], v.uv[0], v.uv[1]]);
         }
-        Ok(())
     }
 }

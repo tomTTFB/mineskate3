@@ -9,3 +9,4 @@ native/target/
 native-libs/
 __pycache__/
 *.pyc
+converter/tools/trick-guide-report.txt

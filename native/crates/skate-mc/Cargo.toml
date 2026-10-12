@@ -13,3 +13,4 @@ jni = "0.21"
 serde.workspace = true
 serde_json.workspace = true
 skate-host = { path = "../skate-host" }
+skate-data = { path = "../skate-data" }

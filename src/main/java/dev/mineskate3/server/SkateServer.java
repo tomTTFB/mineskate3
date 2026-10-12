@@ -8,6 +8,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.entity.living.LivingDeathEvent;
 import net.neoforged.neoforge.event.entity.living.LivingFallEvent;
@@ -54,7 +55,19 @@ public final class SkateServer {
         if (!(player instanceof ServerPlayer serverPlayer)) {
             return;
         }
+        if (skating) {
+            String refusal = refusal(serverPlayer);
+            if (refusal != null) {
+                PacketDistributor.sendToPlayer(serverPlayer, new SkateNetwork.Stop(refusal));
+                return;
+            }
+        }
         boolean changed = skating ? SKATERS.add(player.getUUID()) : SKATERS.remove(player.getUUID());
+        if (skating && changed) {
+            SkateGuard.started(serverPlayer);
+        } else if (!skating) {
+            SkateGuard.stopped(serverPlayer);
+        }
         if (changed) {
             serverPlayer.fallDistance = 0;
             sendToWatchers(serverPlayer, new SkateNetwork.RemoteState(serverPlayer.getId(), skating));
@@ -108,8 +121,29 @@ public final class SkateServer {
         }
     }
 
+    private static String refusal(ServerPlayer player) {
+        if (!SkateConfig.get(SkateConfig.ALLOW_SKATING)) {
+            return "Skate 3 mode is turned off on this server";
+        }
+        if (!player.hasPermissions(SkateConfig.get(SkateConfig.PERMISSION_LEVEL))) {
+            return "You don't have permission to skate on this server";
+        }
+        return null;
+    }
+
     private static void stop(Player player) {
         onState(player, false);
+    }
+
+    /** Takes a skater off the board from the server side, back to where they last moved cleanly. */
+    private static void forceStop(ServerPlayer player, String reason) {
+        Vec3 back = SkateGuard.lastGood(player);
+        onState(player, false);
+        PacketDistributor.sendToPlayer(player, new SkateNetwork.Stop("Skate 3 mode stopped: " + reason));
+        player.noPhysics = false;
+        if (back != null) {
+            player.connection.teleport(back.x, back.y, back.z, player.getYRot(), player.getXRot());
+        }
     }
 
     private static void onFall(LivingFallEvent event) {
@@ -126,14 +160,17 @@ public final class SkateServer {
      * lasts until the next tick, covering the movement packets in between.
      */
     private static void onPlayerTick(PlayerTickEvent.Post event) {
-        Player player = event.getEntity();
-        if (!player.level().isClientSide() && isSkating(player)) {
-            player.noPhysics = true;
-            player.fallDistance = 0;
-            if (player instanceof ServerPlayer serverPlayer) {
-                followWithPlank(serverPlayer);
-            }
+        if (!(event.getEntity() instanceof ServerPlayer player) || !isSkating(player)) {
+            return;
         }
+        String failed = SkateGuard.tick(player);
+        if (failed != null) {
+            forceStop(player, failed);
+            return;
+        }
+        player.noPhysics = true;
+        player.fallDistance = 0;
+        followWithPlank(player);
     }
 
     private static void onStartTracking(PlayerEvent.StartTracking event) {
@@ -161,6 +198,9 @@ public final class SkateServer {
         WATCHERS.remove(id);
         WATCHERS.values().forEach(watchers -> watchers.remove(id));
         removePlank(id);
+        if (event.getEntity() instanceof ServerPlayer player) {
+            SkateGuard.stopped(player);
+        }
     }
 
     private static void onDeath(LivingDeathEvent event) {

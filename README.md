@@ -47,6 +47,14 @@ If you converted your data before the HUD existed, open
 **Mods > MineSkate 3 > Config**, select your `default.xex` again and press
 **Add trick HUD**; then toggle skate mode off and on.
 
+## Trick Guide
+
+Press **G** (or **Back** on a controller while skating) to open Skate 3's own
+Trick Guide: its menu movie, trick list and demo clips, played on your skater.
+A full conversion includes it. If your data was converted before the guide
+existed, open **Mods > MineSkate 3 > Config** (pressing **G** takes you there
+too), select your `default.xex` again and press **Unpack Trick Guide**.
+
 ## Session markers
 
 As in Skate 3: hold **LB** (keyboard **Q**) to bring up the marker panel,
@@ -55,7 +63,7 @@ press **D-pad down** (down arrow) to drop a marker, and hold **D-pad up**
 
 ## Skater, board and sounds
 
-**Mods > MineSkate 3 > Config** has two switches:
+**Mods > MineSkate 3 > Config** has three switches:
 
 - **Skater**: the converted Skate 3 skater (default), or the Minecraft player
   model with your own skin.
@@ -63,6 +71,14 @@ press **D-pad down** (down arrow) to drop a marker, and hold **D-pad up**
   chimes. Skate 3's own audio cannot be extracted yet, so these are original
   synthesised effects (`sounds/generate.py`), driven by the engine's physics
   state.
+- **Rumble**: controller vibration for rolling, grinds, pops, landings and
+  bails. Only XInput pads (Xbox controllers, or anything Steam Input presents
+  as one, on Windows) can vibrate; GLFW, which reads every other pad, has no
+  rumble call.
+
+Armour and held items are drawn on the skater, using the vanilla armour
+boxes and item poses (over the Skate 3 skater as well, as an approximation).
+Custom armour models from other mods are not used.
 
 Other players with the mod see your real board, and your Skate 3 skater if
 they have that switch on: your skeleton is sent to them and they pose their
@@ -98,6 +114,55 @@ Controllers are picked up automatically, in this order:
 The HUD line shows which one is in use. If it says a controller was "not
 recognised", that pad has no mapping; on Windows, running it through Steam
 Input usually fixes that.
+
+## Blocks and surfaces
+
+- **Rails.** Ledges where the ground drops away become grind rails
+  automatically. Fences, walls, glass panes, iron bars and lying chains are
+  grindable down their middle, at the height you can see (not their 1.5 block
+  collision). Straight staircases of three or more steps get a rail down each
+  open side, like a hubba ledge.
+- **Skate park blocks.** The **MineSkate 3 Skate Park** creative tab (also
+  craftable) has blocks built for skating:
+  - **Grind Rail**: a bar on a post, half a block high. Rails in a line join
+    into one continuous rail; it runs the way you face when placing it.
+  - **Ramp**: a 45 degree kicker, one block up over one block.
+  - **Long Ramp (Bottom)** and **Long Ramp (Top)**: half as steep; place the
+    top behind the bottom for a two block long ramp, or use the bottom alone
+    as a small kicker.
+  - **Quarter Pipe**: a curved transition to vertical, with a small deck
+    whose coping edge should grind like any other ledge.
+
+  Ramps rise away from you as you place them. Skate rides their smooth
+  surface; walking players climb them like slabs. Ramps side by side, or end
+  to end, form one surface. The models and textures come from
+  `blocks/generate.py`.
+- **Surfaces.** Ice keeps your speed, blue ice even more; soul sand and honey
+  bog you down; sand, gravel, snow, dirt, grass and wool are slower than
+  stone or wood; slime bounces you back up when you land on it. These act on
+  top of Skate's own physics, which only knows one ground material.
+- **Building while skating.** Placing or breaking a block near you rebuilds
+  the board's collision within a tenth of a second.
+
+## Servers
+
+Skaters are moved by Skate's physics on their own client, so the server
+relaxes its movement corrections for them. To keep that from being abused,
+the server checks each skater's movement every tick (except the owner of a
+singleplayer world): moving through walls, sustained speed past the limit,
+or hanging in the air without falling takes the player off the board and puts
+them back where they last moved cleanly.
+
+`config/mineskate3-server.toml` in the server folder (a copy in
+`<world>/serverconfig/` overrides it for that world):
+
+| Setting | Default | What |
+| --- | --- | --- |
+| `allowSkating` | `true` | Whether anyone may skate |
+| `permissionLevel` | `0` | Operator level needed to skate (0 = everyone) |
+| `movementChecks.enabled` | `true` | The movement checks above |
+| `movementChecks.maxSpeed` | `30` | Blocks per second |
+| `movementChecks.maxAirSeconds` | `10` | Longest time off the ground without falling |
 
 ## How it works
 
@@ -143,10 +208,12 @@ that follows their feet). Players with the mod see the real skater and board.
   with a real vanilla client.
 - The camera mixin, retargeting directions and Skate's facing direction were
   written from the engine source and have not yet been checked in game.
-- Blocks are refreshed every two seconds while skating, so a block you place
-  may take a moment to become solid for the board.
-- Armour and held items are not drawn while skating.
-- No controller vibration yet.
+- The skate park blocks, the in-game Trick Guide unpacking, block surfaces,
+  block rails, armour, held items, rumble and the server's
+  movement checks are new and untested in game. The movement check limits
+  (speed, airtime) are guesses at what real skating needs; if legitimate
+  skating gets stopped, raise them in the server config and please report it.
+- Controller vibration works only with XInput pads on Windows.
 - The sounds are stand-ins, not Skate 3's own; their mix is untuned.
 
 ## Licence

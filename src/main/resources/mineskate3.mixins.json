@@ -7,7 +7,8 @@
     "ServerGamePacketListenerImplMixin"
   ],
   "client": [
-    "client.CameraMixin"
+    "client.CameraMixin",
+    "client.ClientLevelMixin"
   ],
   "injectors": {
     "defaultRequire": 1

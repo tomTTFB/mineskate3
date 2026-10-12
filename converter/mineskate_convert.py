@@ -10,9 +10,11 @@ skate/converter/iw4l_skate_convert.py (Apache-2.0).
     python mineskate_convert.py --xex <path to default.xex> --out <folder>
 
     python mineskate_convert.py --xex <path> --out <folder> --hud-only
+    python mineskate_convert.py --xex <path> --out <folder> --trick-guide-only
 
 Writes <folder>/assets on success; progress lines go to stdout. --hud-only adds
-the original trick HUD to an existing conversion.
+the original trick HUD to an existing conversion, --trick-guide-only the
+Trick Guide.
 """
 from pathlib import Path
 import argparse, shutil, sys, tempfile, traceback
@@ -56,6 +58,36 @@ def hud(exports, game, stage, work, report, log):
     return True
 
 
+def trick_guide(game, stage, work, report):
+    """The Trick Guide's menu, trick records and demo clips. Optional."""
+    from tools import prepare_trick_guide
+    assets = stage / 'assets'
+    try:
+        report('Preparing the original Trick Guide')
+        prepare_trick_guide.prepare(game, assets, work / 'trickguide',
+                                    assets / 'private/stock/skater-collections.json')
+    except Exception as error:
+        traceback.print_exc()
+        report(f'WARNING: the Trick Guide could not be converted ({error}). Skating still works.')
+        return False
+    return True
+
+
+def convert_trick_guide(xex, out):
+    game = check_game(xex)
+    out = out.resolve()
+    if not (out / 'assets/private/stock/skater-collections.json').is_file():
+        raise RuntimeError('Convert the Skate 3 data first; --trick-guide-only adds to an existing conversion.')
+
+    def report(text):
+        print(text, flush=True)
+
+    with tempfile.TemporaryDirectory(prefix='mineskate3-guide-', dir=out.parent) as work:
+        if not trick_guide(game, out, Path(work), report):
+            raise RuntimeError('The Trick Guide could not be converted.')
+    report('Skate 3 Trick Guide ready')
+
+
 def convert_hud(xex, out):
     game = check_game(xex)
     from tools.asset_pipeline import asset_exports as exports
@@ -91,6 +123,7 @@ def convert(xex, out):
         converted = exports.core(game, stage, work, report, log)
         exports.character(game, stage, work, report, log, converted)
         hud(exports, game, stage, work, report, log)
+        trick_guide(game, stage, work, report)
 
     assets = stage / 'assets'
     for needed in ('private/skater.glb', 'private/game.json', 'private/stock/physics-skeletons.json',
@@ -107,6 +140,7 @@ def main():
     parser.add_argument('--xex', type=Path, required=True)
     parser.add_argument('--out', type=Path, required=True)
     parser.add_argument('--hud-only', action='store_true')
+    parser.add_argument('--trick-guide-only', action='store_true')
     args = parser.parse_args()
     if sys.version_info < (3, 11):
         print('ERROR: Python 3.11 or newer is required.', flush=True)
@@ -114,6 +148,8 @@ def main():
     try:
         if args.hud_only:
             convert_hud(args.xex, args.out)
+        elif args.trick_guide_only:
+            convert_trick_guide(args.xex, args.out)
         else:
             convert(args.xex, args.out)
     except Exception as error:

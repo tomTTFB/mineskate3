@@ -1,0 +1,139 @@
+{
+  "parent": "minecraft:block/block",
+  "textures": {
+    "rail": "mineskate3:block/grind_rail",
+    "particle": "mineskate3:block/grind_rail"
+  },
+  "elements": [
+    {
+      "from": [
+        7,
+        6,
+        0
+      ],
+      "to": [
+        9,
+        8,
+        16
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            7,
+            6,
+            9,
+            8
+          ],
+          "texture": "#rail",
+          "cullface": "north"
+        },
+        "south": {
+          "uv": [
+            7,
+            6,
+            9,
+            8
+          ],
+          "texture": "#rail",
+          "cullface": "south"
+        },
+        "east": {
+          "uv": [
+            0,
+            7,
+            16,
+            9
+          ],
+          "texture": "#rail"
+        },
+        "west": {
+          "uv": [
+            0,
+            7,
+            16,
+            9
+          ],
+          "texture": "#rail"
+        },
+        "up": {
+          "uv": [
+            7,
+            0,
+            9,
+            16
+          ],
+          "texture": "#rail"
+        },
+        "down": {
+          "uv": [
+            7,
+            0,
+            9,
+            16
+          ],
+          "texture": "#rail"
+        }
+      }
+    },
+    {
+      "from": [
+        7,
+        0,
+        7
+      ],
+      "to": [
+        9,
+        6,
+        9
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            7,
+            10,
+            9,
+            16
+          ],
+          "texture": "#rail"
+        },
+        "south": {
+          "uv": [
+            7,
+            10,
+            9,
+            16
+          ],
+          "texture": "#rail"
+        },
+        "east": {
+          "uv": [
+            7,
+            10,
+            9,
+            16
+          ],
+          "texture": "#rail"
+        },
+        "west": {
+          "uv": [
+            7,
+            10,
+            9,
+            16
+          ],
+          "texture": "#rail"
+        },
+        "down": {
+          "uv": [
+            7,
+            7,
+            9,
+            9
+          ],
+          "texture": "#rail",
+          "cullface": "down"
+        }
+      }
+    }
+  ]
+}

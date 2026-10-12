@@ -33,4 +33,14 @@ public final class SkateData {
     public static boolean hudReady() {
         return Files.isRegularFile(assets().resolve("private/hud/runtime/trickdisplay.json"));
     }
+
+    /** The original Trick Guide, written by the converter's trick guide step. */
+    public static Path guide() {
+        return assets().resolve("private").resolve("trickguide");
+    }
+
+    public static boolean guideReady() {
+        return Files.isRegularFile(guide().resolve("runtime/trickguide.json"))
+                && Files.isRegularFile(guide().resolve("menu.json"));
+    }
 }

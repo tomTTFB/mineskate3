@@ -122,6 +122,10 @@ pub trait Host {
     fn property_changed(&mut self, _vm: &mut Vm, _object: usize, _key: &str) -> Result<(), String> {
         Ok(())
     }
+    /// Display properties derived from content (`_width`, `_height`).
+    fn property(&mut self, _vm: &Vm, _object: usize, _key: &str) -> Option<Value> {
+        None
+    }
     fn call(
         &mut self,
         vm: &mut Vm,
@@ -138,6 +142,7 @@ pub struct Vm {
     pub global: usize,
     remaining: usize,
     depth: usize,
+    random: u32,
 }
 impl Vm {
     fn variable(&self, scope: &Scope, key: &str) -> Value {
@@ -153,7 +158,29 @@ impl Vm {
     pub fn new() -> Self {
         let mut vm = Self::default();
         vm.global = vm.object(ObjectKind::Plain);
+        vm.random = 0x2545_f491;
         vm
+    }
+    /// Presentation-only randomness (panel wear placement, glow flicker).
+    pub fn random(&mut self) -> f64 {
+        self.random ^= self.random << 13;
+        self.random ^= self.random >> 17;
+        self.random ^= self.random << 5;
+        self.random as f64 / 4294967296.0
+    }
+    /// Runs a script function object with an explicit `this`, as a class
+    /// constructor applied to an existing movie clip.
+    pub fn call_function(
+        &mut self,
+        function: usize,
+        this: usize,
+        args: Vec<Value>,
+        host: &mut impl Host,
+    ) -> Result<Value, String> {
+        match self.objects.get(function).map(|o| o.kind.clone()) {
+            Some(ObjectKind::Function(index)) => self.invoke(index, this, args, host),
+            _ => Ok(Value::Undefined),
+        }
     }
     pub fn object(&mut self, kind: ObjectKind) -> usize {
         if let Some(id) = self.free_objects.pop() {
@@ -472,24 +499,82 @@ impl Vm {
                 }
                 0xa2 | 0xa3 => stack.push(constant(operand)?),
                 0xae => stack.push(self.variable(scope, &constant(operand)?.text())),
-                0x4e | 0xaf => {
-                    let name = if op == 0xaf {
-                        constant(operand)?
-                    } else {
-                        pop(&mut stack)?
-                    }
-                    .text();
+                0x4e | 0xaf | 0xa5 => {
+                    let name = match op {
+                        0xaf => constant(operand)?.text(),
+                        0xa5 => i
+                            .operand
+                            .as_str()
+                            .ok_or("APT member operand missing")?
+                            .to_owned(),
+                        _ => pop(&mut stack)?.text(),
+                    };
                     let obj = pop(&mut stack)?;
-                    stack.push(if let Value::Object(id) = obj {
-                        self.get(id, &name)
-                    } else {
-                        Value::Undefined
+                    stack.push(match obj {
+                        Value::Object(id) if name == "_width" || name == "_height" => host
+                            .property(self, id, &name)
+                            .unwrap_or_else(|| self.get(id, &name)),
+                        Value::Object(id) => self.get(id, &name),
+                        Value::Text(text) if name == "length" => {
+                            Value::Number(text.chars().count() as f64)
+                        }
+                        _ => Value::Undefined,
                     });
+                }
+                0x26 => {
+                    pop(&mut stack)?;
+                }
+                0x30 => {
+                    let max = pop(&mut stack)?.number();
+                    let value = if max.is_finite() && max >= 1.0 {
+                        (self.random() * max).floor()
+                    } else {
+                        0.0
+                    };
+                    stack.push(Value::Number(value));
+                }
+                0x4a => {
+                    let v = pop(&mut stack)?.number();
+                    stack.push(Value::Number(v));
+                }
+                0x42 => {
+                    let n = pop(&mut stack)?.number() as usize;
+                    if n > 256 {
+                        return Err("APT array literal limit".into());
+                    }
+                    let id = self.object(ObjectKind::Plain);
+                    for j in 0..n {
+                        let v = pop(&mut stack)?;
+                        self.set(id, j.to_string(), v)?;
+                    }
+                    self.set(id, "length", Value::Number(n as f64))?;
+                    stack.push(Value::Object(id));
+                }
+                0x43 => {
+                    let n = pop(&mut stack)?.number() as usize;
+                    if n > 256 {
+                        return Err("APT object literal limit".into());
+                    }
+                    let id = self.object(ObjectKind::Plain);
+                    for _ in 0..n {
+                        let v = pop(&mut stack)?;
+                        let k = pop(&mut stack)?.text();
+                        self.set(id, k, v)?;
+                    }
+                    stack.push(Value::Object(id));
                 }
                 0x4f => {
                     let v = pop(&mut stack)?;
                     let k = pop(&mut stack)?.text();
                     let o = pop(&mut stack)?;
+                    // Flash ignores a non-numeric display property assignment.
+                    let display = matches!(
+                        k.as_str(),
+                        "_x" | "_y" | "_xscale" | "_yscale" | "_rotation" | "_alpha" | "_width" | "_height"
+                    );
+                    if display && !v.number().is_finite() {
+                        continue;
+                    }
                     if let Value::Object(id) = o {
                         self.set(id, &k, v)?;
                         host.property_changed(self, id, &k)?;

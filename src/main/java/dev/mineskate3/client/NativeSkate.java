@@ -13,7 +13,7 @@ import java.util.Locale;
  * Implemented in native/crates/skate-mc/src/lib.rs.
  */
 public final class NativeSkate {
-    public static final int ABI_VERSION = 4;
+    public static final int ABI_VERSION = 7;
 
     public static final int STATUS_LOADING = 0;
     public static final int STATUS_READY = 1;
@@ -122,13 +122,17 @@ public final class NativeSkate {
 
     static native String state(long handle);
 
-    static native void collision(long handle, float[] triangles, int count,
-            float minX, float minZ, float maxX, float maxZ);
+    /** `noLip`: one byte per triangle, nonzero where its edges are never grind lips.
+     *  `rails`: 3 floats per point, `railPoints[i]` points for rail i. */
+    static native void collision(long handle, float[] triangles, int count, byte[] noLip,
+            float[] rails, int[] railPoints, float minX, float minZ, float maxX, float maxZ);
 
     static native void activate(long handle, float x, float y, float z, float heading, float aspect);
 
+    /** `drag`, `glide` and `bounce` describe the block under the board (see {@link Surfaces}). */
     static native void step(long handle, float dt, boolean connected, int buttons,
-            int leftTrigger, int rightTrigger, int lx, int ly, int rx, int ry, float aspect);
+            int leftTrigger, int rightTrigger, int lx, int ly, int rx, int ry,
+            float drag, float glide, float bounce, float aspect);
 
     static native void suspend(long handle);
 
@@ -170,4 +174,41 @@ public final class NativeSkate {
 
     /** Skate 3's own XInput reader (Windows): see PadInput. */
     static native int pollXInput(int[] out);
+
+    /** Opens the Trick Guide from its converted folder; throws IllegalStateException on failure. */
+    static native long guideOpen(String root, boolean regular);
+
+    static native void guideFree(long guide);
+
+    /** 0 up, 1 down, 2 select, 3 back; false once the guide has failed. */
+    static native boolean guideInput(long guide, int nav);
+
+    /** One movie frame; false once the guide has failed (see guideError). */
+    static native boolean guideUpdate(long guide);
+
+    /** Plays the outro; guideClosed turns true when it ends. */
+    static native void guideClose(long guide);
+
+    static native boolean guideClosed(long guide);
+
+    static native String guideError(long guide);
+
+    /** The highlighted entry's demo animation, or "". */
+    static native String guideClip(long guide);
+
+    /** Texture files relative to the trick guide folder, as "path|width|height". */
+    static native String[] guideTextures(long guide);
+
+    /** Like hudDraws, for the guide's last frame. */
+    static native int guideDraws(long guide, float[] out);
+
+    /**
+     * Advances the highlighted entry's demo by dt seconds and writes it (see
+     * DemoScene): the float count, 0 without a demo, or minus the length
+     * needed when out is too small.
+     */
+    static native int guideDemo(long guide, float dt, float[] out);
+
+    /** XInput pad `slot`'s low and high frequency motors, 0..65535 (Windows only). */
+    static native boolean xinputRumble(int slot, int left, int right);
 }

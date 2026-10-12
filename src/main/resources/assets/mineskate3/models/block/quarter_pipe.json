@@ -1,0 +1,11 @@
+{
+  "loader": "neoforge:obj",
+  "model": "mineskate3:models/block/quarter_pipe.obj",
+  "flip_v": true,
+  "parent": "minecraft:block/block",
+  "textures": {
+    "surface": "mineskate3:block/ramp_surface",
+    "side": "mineskate3:block/ramp_side",
+    "particle": "mineskate3:block/ramp_surface"
+  }
+}

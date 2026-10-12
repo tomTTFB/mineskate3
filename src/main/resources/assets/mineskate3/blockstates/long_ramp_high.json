@@ -1,0 +1,20 @@
+{
+  "variants": {
+    "facing=north": {
+      "model": "mineskate3:block/long_ramp_high",
+      "y": 0
+    },
+    "facing=east": {
+      "model": "mineskate3:block/long_ramp_high",
+      "y": 90
+    },
+    "facing=south": {
+      "model": "mineskate3:block/long_ramp_high",
+      "y": 180
+    },
+    "facing=west": {
+      "model": "mineskate3:block/long_ramp_high",
+      "y": 270
+    }
+  }
+}

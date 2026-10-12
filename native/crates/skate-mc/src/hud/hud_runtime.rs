@@ -1,5 +1,6 @@
 //! Native HUD bindings and the original ActionScript-driven movie lifecycle.
 use super::{
+    apt_host,
     apt_movie::Movie,
     apt_vm::{Host, ObjectKind, Value, Vm},
 };
@@ -22,7 +23,15 @@ pub struct Input {
 pub struct Bindings {
     pub movie: Movie,
     pub input: Input,
-    random: u32,
+}
+impl Bindings {
+    /// Class constructors owed to clips created since the last call.
+    fn construct(&mut self, vm: &mut Vm) -> Result<(), String> {
+        while let Some((clip, class)) = self.movie.constructors.pop_front() {
+            vm.call_function(class, clip, Vec::new(), self)?;
+        }
+        Ok(())
+    }
 }
 pub struct Runtime {
     pub vm: Vm,
@@ -59,7 +68,13 @@ impl Host for Bindings {
         if key == "text" || key == "autoSize" {
             self.movie.text_changed(vm, object)?;
         }
+        if key == "_width" || key == "_height" {
+            apt_host::size_changed(&self.movie, vm, object, key)?;
+        }
         Ok(())
+    }
+    fn property(&mut self, vm: &Vm, object: usize, key: &str) -> Option<Value> {
+        apt_host::size(&self.movie, vm, object, key)
     }
     fn call(
         &mut self,
@@ -68,27 +83,15 @@ impl Host for Bindings {
         method: &str,
         args: Vec<Value>,
     ) -> Result<Value, String> {
-        if self.movie.method(vm, object, method, &args)? {
-            return Ok(Value::Undefined);
+        if let Some(value) = apt_host::call(&mut self.movie, vm, object, method, &args)? {
+            self.construct(vm)?;
+            return Ok(value);
         }
         let native = match vm.objects.get(object).map(|o| &o.kind) {
             Some(ObjectKind::Native(name)) => name.as_str(),
             _ => "global",
         };
         match (native, method) {
-            ("Math", "floor") => Ok(Value::Number(
-                args.first().ok_or("Math.floor argument")?.number().floor(),
-            )),
-            ("Math", "random") => {
-                // Presentation-only random source; never influences scoring.
-                self.random ^= self.random << 13;
-                self.random ^= self.random >> 17;
-                self.random ^= self.random << 5;
-                Ok(Value::Number(self.random as f64 / 4294967296.0))
-            }
-            // The HUD never enumerates prototype properties. Marking their
-            // enumeration flags therefore leaves its observable fields intact.
-            ("global", "ASSetPropFlags") => Ok(Value::Undefined),
             ("FELanguage", "GetLanguage") => Ok(Value::Text("english".into())),
             ("Tricks", "GetLineTimerMaxPoints") => {
                 Ok(Value::Number(self.input.line_capacity as f64))
@@ -142,17 +145,16 @@ impl Host for Bindings {
 impl Runtime {
     pub fn load(json: &serde_json::Value, input: Input) -> Result<Self, String> {
         let mut vm = Vm::new();
-        for name in ["MovieClip", "Tricks", "FELanguage", "HUDComponents", "Math"] {
+        apt_host::install_globals(&mut vm)?;
+        for name in ["Tricks", "FELanguage", "HUDComponents"] {
             let object = vm.object(ObjectKind::Native(name.into()));
             let prototype = vm.object(ObjectKind::Plain);
             vm.set(object, "prototype", Value::Object(prototype))?;
             vm.set(vm.global, name, Value::Object(object))?;
         }
-        vm.set(vm.global, "Screen_EdgeOffset", Value::Number(0.0))?;
         let mut bindings = Bindings {
             movie: Movie::load(json)?,
             input,
-            random: 0x9e3779b9,
         };
         let initial: Vec<_> = bindings
             .movie
@@ -191,6 +193,7 @@ impl Runtime {
     }
     fn drain(&mut self) -> Result<(), String> {
         let mut calls = 0;
+        self.bindings.construct(&mut self.vm)?;
         while let Some((object, offset)) = self.bindings.movie.pending.pop_front() {
             calls += 1;
             if calls > 4096 {

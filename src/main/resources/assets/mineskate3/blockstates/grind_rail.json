@@ -1,0 +1,11 @@
+{
+  "variants": {
+    "axis=z": {
+      "model": "mineskate3:block/grind_rail"
+    },
+    "axis=x": {
+      "model": "mineskate3:block/grind_rail",
+      "y": 90
+    }
+  }
+}

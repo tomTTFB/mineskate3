@@ -22,8 +22,10 @@ import org.joml.Vector3f;
 public final class SkateSession {
     /** Rebuild collision once the skater is this far from where it was gathered. */
     private static final double RECENTRE_DISTANCE = 10.0;
-    /** Rebuild collision this often regardless, to pick up block changes. */
-    private static final long REFRESH_MILLIS = 2000;
+    /** After a block changes, wait this long for more before rebuilding (explosions, pistons). */
+    private static final long CHANGE_SETTLE_MILLIS = 100;
+    /** Rebuild this often regardless, in case a change slipped past the listeners. */
+    private static final long REFRESH_MILLIS = 15000;
 
     public record CameraPose(Vec3 position, float yaw, float pitch, float roll, float fov) {}
 
@@ -42,6 +44,10 @@ public final class SkateSession {
     private double originZ;
     private BlockPos collisionCentre;
     private long collisionTime;
+    /** When a block inside the gathered area changed since the last build, else 0. */
+    private long changedAt;
+    private Surfaces.Surface surface = Surfaces.Surface.NORMAL;
+    private final Rumble rumble = new Rumble();
     private final float[] pose = new float[NativeSkate.POSE_LENGTH];
     private long poseGeneration = -1;
     private boolean posePublished;
@@ -191,7 +197,9 @@ public final class SkateSession {
         camera = null;
         posePublished = false;
         SkateAudio.stopLocal();
+        rumble.stop();
         level = null;
+        surface = Surfaces.Surface.NORMAL;
         if (was) {
             send(new SkateNetwork.State(false));
             message(reason.isEmpty() ? "Skate 3 mode off" : reason);
@@ -218,12 +226,59 @@ public final class SkateSession {
         }
         long started = System.nanoTime();
         BlockCollision blocks = BlockCollision.gather(mc.level, centre, originX, originY, originZ);
-        NativeSkate.collision(handle, blocks.triangles, blocks.count, blocks.minX, blocks.minZ, blocks.maxX,
-                blocks.maxZ);
+        NativeSkate.collision(handle, blocks.triangles, blocks.count, blocks.noLip, blocks.rails, blocks.railPoints,
+                blocks.minX, blocks.minZ, blocks.maxX, blocks.maxZ);
         collisionCentre = blocks.centre;
         collisionTime = System.currentTimeMillis();
-        MineSkate3.LOGGER.debug("Skate collision: {} triangles around {} in {} ms", blocks.count, centre,
-                (System.nanoTime() - started) / 1_000_000);
+        changedAt = 0;
+        MineSkate3.LOGGER.debug("Skate collision: {} triangles, {} block rails around {} in {} ms", blocks.count,
+                blocks.railPoints.length, centre, (System.nanoTime() - started) / 1_000_000);
+    }
+
+    /**
+     * A block changed on the client (ClientLevelMixin). Changes inside the
+     * gathered area that touch collision schedule a rebuild.
+     */
+    public void blockChanged(Level changed, BlockPos pos, net.minecraft.world.level.block.state.BlockState before,
+            net.minecraft.world.level.block.state.BlockState after) {
+        if (!active || changed != level || collisionCentre == null || before == after || !inGathered(pos)) {
+            return;
+        }
+        var empty = net.minecraft.world.phys.shapes.CollisionContext.empty();
+        if (before.getCollisionShape(changed, pos, empty).isEmpty()
+                && after.getCollisionShape(changed, pos, empty).isEmpty()) {
+            return;
+        }
+        if (changedAt == 0) {
+            changedAt = System.currentTimeMillis();
+        }
+    }
+
+    /** A chunk arrived: it may fill a hole in the gathered area. */
+    public void chunkLoaded(Level loaded, net.minecraft.world.level.ChunkPos chunk) {
+        if (!active || loaded != level || collisionCentre == null) {
+            return;
+        }
+        int r = BlockCollision.RADIUS + 1;
+        if (chunk.getMaxBlockX() >= collisionCentre.getX() - r && chunk.getMinBlockX() <= collisionCentre.getX() + r
+                && chunk.getMaxBlockZ() >= collisionCentre.getZ() - r
+                && chunk.getMinBlockZ() <= collisionCentre.getZ() + r && changedAt == 0) {
+            changedAt = System.currentTimeMillis();
+        }
+    }
+
+    private boolean inGathered(BlockPos pos) {
+        int r = BlockCollision.RADIUS + 1;
+        int dy = pos.getY() - collisionCentre.getY();
+        return Math.abs(pos.getX() - collisionCentre.getX()) <= r && Math.abs(pos.getZ() - collisionCentre.getZ()) <= r
+                && dy >= -BlockCollision.BELOW - 1 && dy <= BlockCollision.ABOVE + 1;
+    }
+
+    /** The server stopped this player's skating (not allowed, or a movement check failed). */
+    public void forcedStop(String reason) {
+        if (active || entering) {
+            stop(reason.isEmpty() ? "Skate 3 mode stopped by the server" : reason);
+        }
     }
 
     /** Client tick: toggling, loading, collision streaming and failure handling. */
@@ -259,12 +314,16 @@ public final class SkateSession {
         }
         state = NativeSkate.state(handle);
         BlockPos here = player.blockPosition();
+        long now = System.currentTimeMillis();
         boolean far = collisionCentre == null || Math.sqrt(collisionCentre.distSqr(here)) > RECENTRE_DISTANCE;
-        boolean stale = System.currentTimeMillis() - collisionTime > REFRESH_MILLIS;
-        if (far || stale) {
+        boolean changed = changedAt != 0 && now - changedAt >= CHANGE_SETTLE_MILLIS;
+        boolean stale = now - collisionTime > REFRESH_MILLIS;
+        if (far || changed || stale) {
             sendCollision(here);
         }
         if (posePublished) {
+            surface = Surfaces.under(mc.level, originX + pose[NativeSkate.ROOT + 12],
+                    originY + pose[NativeSkate.ROOT + 13], originZ + pose[NativeSkate.ROOT + 14]);
             send(new SkateNetwork.Pose(SkaterRenderer.networkPose(pose), SkaterRenderer.networkBones(handle, pose)));
         }
     }
@@ -276,13 +335,16 @@ public final class SkateSession {
         }
         Minecraft mc = Minecraft.getInstance();
         if (mc.isPaused()) {
+            rumble.stop();
             return;
         }
         pad.poll(dt, mc.screen != null);
+        Surfaces.Surface under = surface;
         NativeSkate.step(handle, dt, pad.connected, pad.buttons, pad.leftTrigger, pad.rightTrigger,
-                pad.lx, pad.ly, pad.rx, pad.ry, aspect());
+                pad.lx, pad.ly, pad.rx, pad.ry, under.drag(), under.glide(), under.bounce(), aspect());
         long generation = NativeSkate.pose(handle, pose);
         if (generation < 0 || generation == poseGeneration) {
+            rumble.update(null, dt, pad);
             return;
         }
         poseGeneration = generation;
@@ -292,6 +354,7 @@ public final class SkateSession {
         }
         SkateAudio.local(pose, originX + pose[NativeSkate.ROOT + 12], originY + pose[NativeSkate.ROOT + 13],
                 originZ + pose[NativeSkate.ROOT + 14]);
+        rumble.update(pose, dt, pad);
     }
 
     private CameraPose cameraFrom(float[] p) {
@@ -334,6 +397,7 @@ public final class SkateSession {
     /** The world is going away: pause skating; the native session stays loaded. */
     public void onLogout() {
         SkateAudio.stopLocal();
+        rumble.stop();
         active = false;
         entering = false;
         camera = null;

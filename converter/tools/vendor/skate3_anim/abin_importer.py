@@ -760,21 +760,16 @@ def _raw_channel_has(hdr: RawCompressionHeader, channel: int, kind: int) -> bool
 
 
 def _raw_quat_decompress(qcomp: int) -> Tuple[float, float, float, float]:
+    """32-bit RAW quaternion: the rotation axis as azimuth (bits 31..21) and
+    elevation (bits 20..11), and sin(angle/2) in bits 10..0; w is positive.
+    Checked against the VBR RIG_TPOSE that the same rig stores in OnBoard.abin."""
     pi = math.pi
-    qa = (qcomp >> 21) & 0x7FF
-    qb = (qcomp >> 11) & 0x3FF
-    qc =  qcomp        & 0x7FF
-    angle_a = (qa / 2047.0) * 2 * pi - pi
-    sca     =  qb / 1023.0
-    angle_b = (qc / 2047.0) * 2 * pi - pi
-    x = math.sin(angle_b) * sca
-    y = math.cos(angle_b) * sca
-    z = math.sin(angle_a)
-    w = math.cos(angle_a)
-    n = math.sqrt(x*x + y*y + z*z + w*w)
-    if n < 1e-8:
-        return (0.0, 0.0, 0.0, 1.0)
-    return (x/n, y/n, z/n, w/n)
+    azimuth = (((qcomp >> 21) & 0x7FF) / 2047.0) * 2 * pi - pi
+    elevation = (((qcomp >> 11) & 0x3FF) / 1023.0) * pi - pi / 2
+    s = (qcomp & 0x7FF) / 2047.0
+    w = math.sqrt(max(0.0, 1.0 - s * s))
+    c = math.cos(elevation) * s
+    return (c * math.cos(azimuth), c * math.sin(azimuth), math.sin(elevation) * s, w)
 
 
 def _raw_extract_frame(data: bytes, part: AnimPart, frame_idx: int) -> List[SQT]:

@@ -43,7 +43,8 @@ pub struct RailCensus {
 }
 
 /// Rails over `tris` (map units, z up), each a polyline of two or more points.
-pub fn find(tris: &[[Vec3; 3]]) -> (Vec<Vec<Vec3>>, RailCensus) {
+/// Triangles marked in `skip` still block probes but never offer a lip.
+pub fn find(tris: &[[Vec3; 3]], skip: &[bool]) -> (Vec<Vec<Vec3>>, RailCensus) {
     let grid = Grid::build(tris);
     let mut probe = Probe {
         tris,
@@ -56,9 +57,9 @@ pub fn find(tris: &[[Vec3; 3]]) -> (Vec<Vec<Vec3>>, RailCensus) {
     // Every edge of a walkable face, once.
     let key = |v: Vec3| v.to_array().map(|x| (x * 8.).round() as i32);
     let mut edges: HashMap<([i32; 3], [i32; 3]), (Vec3, Vec3, Vec3, Vec3)> = HashMap::new();
-    for tri in tris {
+    for (index, tri) in tris.iter().enumerate() {
         let normal = (tri[1] - tri[0]).cross(tri[2] - tri[0]).normalize_or_zero();
-        if normal.z <= UPWARD_Z {
+        if normal.z <= UPWARD_Z || skip.get(index).copied().unwrap_or(false) {
             continue;
         }
         let centroid = (tri[0] + tri[1] + tri[2]) / 3.;
@@ -325,13 +326,14 @@ fn to_skate(p: Vec3) -> Vec3 {
 /// ground stopping at the cut is not a real ledge.
 pub fn find_skate(
     tris: &[[[f32; 3]; 3]],
+    skip: &[bool],
     inside: Option<[f32; 4]>,
 ) -> (Vec<Vec<[f32; 3]>>, RailCensus) {
     let map: Vec<[Vec3; 3]> = tris
         .iter()
         .map(|t| t.map(|p| from_skate(Vec3::from_array(p))))
         .collect();
-    let (rails, census) = find(&map);
+    let (rails, census) = find(&map, skip);
     let rails = rails
         .into_iter()
         .map(|rail| rail.into_iter().map(|p| to_skate(p).to_array()).collect::<Vec<_>>())
@@ -365,7 +367,7 @@ mod tests {
         tris.extend(quad([0., 0., 1.], [1., 0., 1.], [1., 1., 1.], [0., 1., 1.]));
         tris.extend(quad([0., 0., 0.], [0., 0., 1.], [0., 1., 1.], [0., 1., 0.]));
         tris.extend(quad([1., 0., 0.], [1., 1., 0.], [1., 1., 1.], [1., 0., 1.]));
-        let (rails, census) = find_skate(&tris, Some([-8., -8., 8., 8.]));
+        let (rails, census) = find_skate(&tris, &[], Some([-8., -8., 8., 8.]));
         assert!(census.lips >= 4, "lips {}", census.lips);
         assert!(!rails.is_empty());
         for rail in &rails {
@@ -373,5 +375,23 @@ mod tests {
                 assert!((p[1] - 1.0).abs() < 1e-3, "rail off the block top: {p:?}");
             }
         }
+    }
+
+    /// The same block with its faces marked: no lips, but still in the way.
+    #[test]
+    fn skipped_faces_offer_no_lips() {
+        let mut tris = Vec::new();
+        tris.extend(quad([-8., 0., -8.], [-8., 0., 8.], [8., 0., 8.], [8., 0., -8.]));
+        let floor = tris.len();
+        tris.extend(quad([0., 1., 0.], [0., 1., 1.], [1., 1., 1.], [1., 1., 0.]));
+        tris.extend(quad([0., 0., 0.], [0., 1., 0.], [1., 1., 0.], [1., 0., 0.]));
+        tris.extend(quad([0., 0., 1.], [1., 0., 1.], [1., 1., 1.], [0., 1., 1.]));
+        tris.extend(quad([0., 0., 0.], [0., 0., 1.], [0., 1., 1.], [0., 1., 0.]));
+        tris.extend(quad([1., 0., 0.], [1., 1., 0.], [1., 1., 1.], [1., 0., 1.]));
+        let skip: Vec<bool> = (0..tris.len()).map(|i| i >= floor).collect();
+        // Only the floor's own outer edges are lips, and those lie on the cut.
+        let (rails, census) = find_skate(&tris, &skip, Some([-8., -8., 8., 8.]));
+        assert_eq!(census.lips, 4);
+        assert!(rails.is_empty());
     }
 }

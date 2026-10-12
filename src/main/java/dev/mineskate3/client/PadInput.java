@@ -56,6 +56,8 @@ public final class PadInput {
     public String controllerName;
     /** A joystick GLFW sees but has no gamepad mapping for, if any. */
     public String unrecognisedName;
+    /** The XInput slot in use, or -1: only XInput pads can rumble. */
+    public int xinputSlot = -1;
 
     private final GLFWGamepadState state = GLFWGamepadState.create();
     private final int[] xinput = new int[7];
@@ -79,6 +81,7 @@ public final class PadInput {
         clear();
         controllerName = null;
         unrecognisedName = null;
+        xinputSlot = -1;
         if (readXInput(blocked)) {
             lastMouseX = Double.NaN;
             return;
@@ -128,6 +131,7 @@ public final class PadInput {
             return false;
         }
         controllerName = "Xbox controller " + (slot + 1) + " (XInput)";
+        xinputSlot = slot;
         if (!blocked) {
             buttons = xinput[0] & 0xFFFF;
             leftTrigger = xinput[1];

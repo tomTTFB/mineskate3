@@ -1,6 +1,8 @@
 {
   "key.categories.mineskate3": "MineSkate 3",
   "key.mineskate3.toggle": "Toggle Skate 3 mode",
+  "key.mineskate3.trick_guide": "Open the Trick Guide",
+  "screen.mineskate3.trick_guide": "Trick Guide",
   "mineskate3.setup.title": "Skate 3 setup",
   "subtitles.mineskate3.roll": "Skateboard rolls",
   "subtitles.mineskate3.grind": "Skateboard grinds",
@@ -12,5 +14,11 @@
   "subtitles.mineskate3.bail": "Skater bails",
   "subtitles.mineskate3.marker_place": "Session marker placed",
   "subtitles.mineskate3.marker_return": "Session marker return",
-  "mineskate3.setup.skater": "Skater"
+  "mineskate3.setup.skater": "Skater",
+  "itemGroup.mineskate3.skate_park": "MineSkate 3 Skate Park",
+  "block.mineskate3.grind_rail": "Grind Rail",
+  "block.mineskate3.ramp": "Ramp",
+  "block.mineskate3.long_ramp_low": "Long Ramp (Bottom)",
+  "block.mineskate3.long_ramp_high": "Long Ramp (Top)",
+  "block.mineskate3.quarter_pipe": "Quarter Pipe"
 }
