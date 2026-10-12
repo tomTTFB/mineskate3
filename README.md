@@ -126,11 +126,21 @@ The jar picks up the native library for your own platform from
 Linux and macOS and packages all of them into one jar
 (`.github/workflows/build.yml`).
 
+## Running it on a server
+
+Install the jar on the server. Players who want to skate install it too;
+everyone else can join without it. Players without the mod see a skater as a
+normal player model standing on an oak plank board (a vanilla block display
+that follows their feet). Players with the mod see the real skater and board.
+
 ## Known gaps
 
-- Only singleplayer and servers with the mod installed are expected to work.
-  The server relaxes its movement checks for skaters; vanilla servers will
-  rubber-band you.
+- Only singleplayer and servers with the mod installed are expected to work
+  for skating. The server relaxes its movement checks for skaters; vanilla
+  servers will rubber-band you.
+- The server-only install (clients without the mod) and the plank board have
+  only been checked to compile and boot on a dedicated server, not played
+  with a real vanilla client.
 - The camera mixin, retargeting directions and Skate's facing direction were
   written from the engine source and have not yet been checked in game.
 - Blocks are refreshed every two seconds while skating, so a block you place
